@@ -7,11 +7,13 @@ GEMINI_MODEL_2 = "gemini-1.5-pro"
 GEMINI_MODEL_3 = "gemini-2.0-flash-lite"
 
 
-company_researcher = LlmAgent(
-    name="CompanyResearcher",
-    model=GEMINI_MODEL,
-    tools=[google_search],
-    instruction="""
+def create_sequential_agent() -> SequentialAgent:
+    """Creates and returns a new instance of the sequential agent."""
+    company_researcher = LlmAgent(
+        name="CompanyResearcher",
+        model=GEMINI_MODEL,
+        tools=[google_search],
+        instruction="""
     You are a meticulous corporate researcher. Research the company: {company_name} (website: {website}).
     Focus on finding the CEO's information. Return a JSON with the following fields:
     - ceo_name: The full name of the current CEO/President
@@ -41,16 +43,15 @@ company_researcher = LlmAgent(
     Return null ONLY if you cannot find the information after exhausting all sources.
     Only return the JSON object, no additional text.
 """,
-    output_key="company_info"
-)
+        output_key="company_info"
+    )
 
-
-client_target_agent = LlmAgent(
-    name="ClientTargetAgent", 
-    model=GEMINI_MODEL,
-    tools=[google_search],
-    include_contents='none',
-    instruction="""
+    client_target_agent = LlmAgent(
+        name="ClientTargetAgent",
+        model=GEMINI_MODEL,
+        tools=[google_search],
+        include_contents='none',
+        instruction="""
     You are a meticulous corporate researcher. Research the company: {company_name} (website: {website}).
         Your task is to analyze their target market and service offerings.
 
@@ -94,16 +95,15 @@ client_target_agent = LlmAgent(
         }
     Only return the JSON object, no additional text.
     """,
-    output_key="client_target_info"
-)
+        output_key="client_target_info"
+    )
 
-
-ranking_agent = LlmAgent(
-    name="RankingAgent",
-    model=GEMINI_MODEL_2,
-    tools=[google_search],
-    include_contents='none',
-    instruction="""
+    ranking_agent = LlmAgent(
+        name="RankingAgent",
+        model=GEMINI_MODEL_2,
+        tools=[google_search],
+        include_contents='none',
+        instruction="""
     You are a ranking agent that evaluates potential business opportunities between companies.
 
     Analyze the following information:
@@ -131,15 +131,15 @@ ranking_agent = LlmAgent(
 
     Only return the JSON object, no additional text.
     """,
-    output_key="ranking"
-)
+        output_key="ranking"
+    )
 
-collaboration_agent = LlmAgent(
-    name="CollaborationAgent",
-    model=GEMINI_MODEL_3,
-    tools=[google_search],
-    include_contents='none',
-    instruction="""
+    collaboration_agent = LlmAgent(
+        name="CollaborationAgent",
+        model=GEMINI_MODEL_3,
+        tools=[google_search],
+        include_contents='none',
+        instruction="""
     You are a business collaboration strategist that analyzes partnership opportunities.
 
     Your purpose is to evaluate potential collaborations by analyzing:
@@ -163,16 +163,19 @@ collaboration_agent = LlmAgent(
         "bizzzup_walkthrough": {
             "overview": "Provide a brief and impactful overview of our relevant work, including links to our website and portfolio."
         }
-
     }
 
     Only return the JSON object, no additional text.
     """,
-    output_key="collaboration_proposal"
-)
+        output_key="collaboration_proposal"
+    )
 
-sequential_agent = SequentialAgent(
-    name="InfoProcessing",
-    sub_agents=[company_researcher, client_target_agent, ranking_agent, collaboration_agent]
-)
- 
+    return SequentialAgent(
+        name="InfoProcessing",
+        sub_agents=[
+            company_researcher,
+            client_target_agent,
+            ranking_agent,
+            collaboration_agent
+        ]
+    )

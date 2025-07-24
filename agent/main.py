@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from typing import AsyncGenerator, Dict, Optional, Any
 
+
 import pandas as pd
 from dotenv import load_dotenv
 from google.adk.agents import BaseAgent, LlmAgent, SequentialAgent
@@ -11,30 +12,36 @@ from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events import Event
 from google.genai import types
 from typing_extensions import override
-from .sub_agents.agent import sequential_agent
+from .sub_agents.agent import create_sequential_agent
 from .sub_agents.tools.read_google_docs import read_doc
 from .config import MAX_RETRIES, CSV_OUTPUT, BIZZZUP_DOCUMETS
 from .sub_agents.email_sender import email_sender_agent # type: ignore
 from .sub_agents.Email_content import email_content_agent
 import re
 import logging
-from .monitoring import create_log_entry,  count_tokens, _calculate_cost
+import csv
+from .monitoring import create_log_entry,  count_tokens
 
 
 # ──────────────────────────── ENV / LOGGING ──────────────────────────────
 load_dotenv()
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-logger.propagate = False  # To prevent duplicate logs
+# Get a logger for the module
+module_logger = logging.getLogger(__name__)
+
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-def setup_logging(session_id: str):
-    """Set up logging with a session-specific log file."""
-    if logger.handlers:
-        for handler in logger.handlers:
-            logger.removeHandler(handler)
+def setup_logging(session_id: str) -> logging.Logger:
+    """Set up logging with a session-specific log file and return a new logger instance."""
+    session_logger = logging.getLogger(f"{__name__}.{session_id}")
+    session_logger.setLevel(logging.INFO)
+    session_logger.propagate = False  # Prevent logs from propagating to the root logger
+
+    # Remove any existing handlers to avoid duplication
+    if session_logger.handlers:
+        for handler in session_logger.handlers:
             handler.close()
+            session_logger.removeHandler(handler)
 
     log_dir = os.path.join(BASE_DIR, "files")
     os.makedirs(log_dir, exist_ok=True)
@@ -43,7 +50,9 @@ def setup_logging(session_id: str):
     # JSON file handler for the frontend monitoring
     fh = logging.FileHandler(log_file, mode='w')
     fh.setFormatter(JsonFormatter())
-    logger.addHandler(fh)
+    session_logger.addHandler(fh)
+    
+    return session_logger
 
 class JsonFormatter(logging.Formatter):
     def format(self, record):
@@ -90,21 +99,21 @@ def send_collaboration_email():
     # Check if collaboration reports exist
     all_reports = get_all_collaboration_reports()
     if not all_reports:
-        logger.error("❌ No collaboration reports found. Please run company analysis first.")
+        module_logger.error("❌ No collaboration reports found. Please run company analysis first.")
         return
     
-    logger.info(f"📄 Found {len(all_reports)} collaboration reports.")
+    module_logger.info(f"📄 Found {len(all_reports)} collaboration reports.")
     
     for report_file in all_reports:
-        logger.info(f"\n🚀 Processing report: {report_file}")
+        module_logger.info(f"\n🚀 Processing report: {report_file}")
         
         # Get recipient details
-        logger.info("\n📧 Email Setup")
+        module_logger.info("\n📧 Email Setup")
         recipient_name = input(f"Enter recipient's full name for '{os.path.basename(report_file)}' (e.g., Jane Doe): ").strip()
         recipient_email = input(f"Enter recipient's email address for '{os.path.basename(report_file)}': ").strip()
         
         if not recipient_name or not recipient_email:
-            logger.error("❌ Both the recipient's name and email are required. Skipping this report.")
+            module_logger.error("❌ Both the recipient's name and email are required. Skipping this report.")
             continue
         
         # Optional custom subject
@@ -125,7 +134,7 @@ def send_collaboration_email():
         tool_context = ToolContext(invocation_context=invocation_context)
         
         # Send email
-        logger.info(f"\n📤 Sending collaboration proposal to {recipient_email}...")
+        module_logger.info(f"\n📤 Sending collaboration proposal to {recipient_email}...")
         result = send_email(
             recipient_email=recipient_email,
             receiver_name=recipient_name,
@@ -136,11 +145,11 @@ def send_collaboration_email():
         )
         
         if result["success"]:
-            logger.info(f"✅ {result['message']}")
-            logger.info(f"📄 Report used: {result['filepath']}")
-            logger.info(f"📧 Subject: {result['subject']}")
+            module_logger.info(f"✅ {result['message']}")
+            module_logger.info(f"📄 Report used: {result['filepath']}")
+            module_logger.info(f"📧 Subject: {result['subject']}")
         else:
-            logger.error(f"❌ {result['message']}")
+            module_logger.error(f"❌ {result['message']}")
 
 # ───────────────────────────── Configuration ─────────────────────────────
 APP_NAME = "company_info_scraper_app"
@@ -180,12 +189,16 @@ class CompanyInfoExtractorAgent(BaseAgent):
     # Field declarations
     sequential_agent: SequentialAgent
     _sub_agents_map: Dict[str, LlmAgent]
+    logger: logging.Logger
     
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str, logger: Optional[logging.Logger] = None) -> None:
+        sequential_agent = create_sequential_agent()
+        
         super().__init__(
             name=name,
             sequential_agent=sequential_agent,
-            sub_agents=[sequential_agent]
+            sub_agents=[sequential_agent],
+            logger=logger or module_logger
         )
         self._sub_agents_map = {
             agent.name: agent for agent in self.sequential_agent.sub_agents
@@ -272,21 +285,20 @@ class CompanyInfoExtractorAgent(BaseAgent):
 
         return md
 
-    @staticmethod
-    def _save_collaboration_report(company_name: str, data: Dict[str, Any]):
+    def _save_collaboration_report(self, company_name: str, data: Dict[str, Any]):
         """Saves collaboration data to a markdown file."""
         if not data:
             return
-        
+        pass
         # Sanitize company name for filename
-        safe_company_name = re.sub(r'[\\/*?:"<>|]', "", company_name)
-        report_path = Path(COLLABORATION_REPORTS_DIR) / f"{safe_company_name}_collaboration.md"
+        # safe_company_name = re.sub(r'[\\/*?:"<>|]', "", company_name)
+        # report_path = Path(COLLABORATION_REPORTS_DIR) / f"{safe_company_name}_collaboration.md"
         
-        md_content = CompanyInfoExtractorAgent._format_collaboration_md(company_name, data)
+        md_content = self._format_collaboration_md(company_name, data)
         
-        with open(report_path, "w", encoding="utf-8") as f:
-            f.write(md_content)
-        logger.info(f"Collaboration report saved to {report_path}")
+        # with open(report_path, "w", encoding="utf-8") as f:
+        #     f.write(md_content)
+        # self.logger.info(f"Collaboration report saved to {report_path}")
 
     async def _send_email_with_content(self, ctx: InvocationContext, proposal: Dict[str, Any]) -> None:
         """Generates email content and sends the email."""
@@ -295,7 +307,7 @@ class CompanyInfoExtractorAgent(BaseAgent):
         async for event in email_content_agent.run_async(ctx):
             email_content_events.append(event)
         if not email_content_events:
-            logger.error("❌ Failed to generate email content.")
+            self.logger.error("❌ Failed to generate email content.")
             return
         email_content_res = email_content_events[-1]
 
@@ -307,8 +319,8 @@ class CompanyInfoExtractorAgent(BaseAgent):
 
         email_content = self._extract_json_from_text(text_content)
         if not email_content:
-            logger.error("❌ Failed to generate email content.")
-            logger.error(f"DEBUG: Failed to parse JSON from content: {text_content}")
+            self.logger.error("❌ Failed to generate email content.")
+            self.logger.error(f"DEBUG: Failed to parse JSON from content: {text_content}")
             return
 
         # Assuming email_sender_agent is available and configured
@@ -320,7 +332,7 @@ class CompanyInfoExtractorAgent(BaseAgent):
         email_sender_events = []
         async for event in email_sender_agent.run_async(ctx):
             email_sender_events.append(event)
-        logger.info("✅ Email sent successfully.")
+        self.logger.info("✅ Data Appeared.")
 
     async def _enrich_row(self, ctx: InvocationContext, company: str, website: str) -> Dict[str, Any]:
         """Process one company row through the agent pipeline."""
@@ -369,7 +381,7 @@ class CompanyInfoExtractorAgent(BaseAgent):
                     
                     for part in event.content.parts:
                         text_content = getattr(part, "text", "")
-                        logger.info(f"Agent '{agent.name}' produced output.", extra={'agent': agent.name, 'task': text_content})
+                        self.logger.info(f"Agent '{agent.name}' produced output.", extra={'agent': agent.name, 'task': text_content})
                         parsed = self._extract_json_from_text(text_content)
                         if parsed:
                             # Merge keys from this partial result into the aggregated dict
@@ -404,7 +416,7 @@ class CompanyInfoExtractorAgent(BaseAgent):
                     output=aggregated_str,
                     tools_used=tools_used
                 )
-                logger.info(log_entry)
+                self.logger.info(log_entry)
 
 
                 # Save the collaboration report
@@ -417,16 +429,16 @@ class CompanyInfoExtractorAgent(BaseAgent):
                 break  # Exit retry loop on success
 
             except Exception as e:
-                logger.error(f"Error during enrichment attempt {attempt + 1} for '{company}': {e}", extra={'agent': self.name, 'task': 'enrichment_error'})
+                self.logger.error(f"Error during enrichment attempt {attempt + 1} for '{company}': {e}", extra={'agent': self.name, 'task': 'enrichment_error'})
                 # Fallback to a simpler agent if the primary fails
                 if attempt == 0:  # First failure
-                    logger.error("Fallback: trying to send a generic email.", extra={'agent': self.name, 'task': 'fallback'})
+                    self.logger.error("Fallback: trying to send a generic email.", extra={'agent': self.name, 'task': 'fallback'})
                     await self._send_email_with_content(ctx, {})
                     break  # Email sent, no need to retry.
 
                 if attempt < MAX_RETRIES - 1:
                     wait_time = 2 ** (attempt + 1)  # Exponential backoff, starting with 2 seconds
-                    logger.info(f"Retrying in {wait_time} seconds...")
+                    self.logger.info(f"Retrying in {wait_time} seconds...")
                     await asyncio.sleep(wait_time)
 
         # Flatten the aggregated data from multiple agents
@@ -497,18 +509,17 @@ class CompanyInfoExtractorAgent(BaseAgent):
             for key, col_name in KEY_TO_COLUMN_MAP.items():
                 output_row[col_name] = str(result.get(key, "")) if result.get(key) is not None else ""
             
-            # Save to CSV after each row is processed
-            output_df = pd.DataFrame([output_row], columns=CSV_OUTPUT_COLS)
-            
-            # Use the session_id from the context for the output filename
             session_id = ctx.session.id
             output_path = Path.cwd() / "files" / f"{session_id}.csv"
             output_path.parent.mkdir(parents=True, exist_ok=True)
-            
-            if not os.path.exists(output_path):
-                output_df.to_csv(output_path, index=False, mode='w')
-            else:
-                output_df.to_csv(output_path, index=False, mode='a', header=False)
+
+            file_exists = os.path.exists(output_path)
+
+            with open(output_path, 'a', newline='', encoding='utf-8') as f:
+                writer = csv.DictWriter(f, fieldnames=CSV_OUTPUT_COLS)
+                if not file_exists:
+                    writer.writeheader()
+                writer.writerow(output_row)
 
         # Save output
         ctx.session.state[STATE_OUTPUT_FILE] = str(output_path)
@@ -525,15 +536,11 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 
 async def main(filepath: str, session_id: Optional[str] = None) -> None:
-    if session_id:
-        setup_logging(session_id)
-        adk_session_id = session_id
-    else:
-        # Fallback to a default session ID if none is provided
-        adk_session_id = "default_session"
-        setup_logging(adk_session_id)
+    # Use a specific logger for this session
+    logger = setup_logging(session_id) if session_id else module_logger
+    adk_session_id = session_id or "default_session"
 
-    agent = CompanyInfoExtractorAgent("CompanyInfoExtractor")
+    agent = CompanyInfoExtractorAgent("CompanyInfoExtractor", logger=logger)
     sess_svc = InMemorySessionService()
 
     await sess_svc.create_session(
@@ -553,19 +560,7 @@ async def main(filepath: str, session_id: Optional[str] = None) -> None:
     logger.info("✅ Company data processing complete.")
     logger.info(f"📄 Enriched data saved to: {CSV_OUTPUT}")
     logger.info("="*50 + "\n")
-
-    if not session_id:
-        while True:
-            choice = input("Would you like to send the collaboration proposal email now? (yes/no): ").lower().strip()
-            if choice in ["yes", "y"]:
-                send_collaboration_email()
-                break
-            elif choice in ["no", "n"]:
-                logger.info("Skipping email. Exiting program.")
-                break
-            else:
-                logger.error("Invalid choice. Please enter 'yes' or 'no'.")
+    
 
 def run_agent_async(filepath: str, session_id: str):
-    asyncio.run(main(filepath, session_id))  
-
+    asyncio.run(main(filepath, session_id))

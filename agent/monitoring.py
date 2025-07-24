@@ -65,7 +65,13 @@ def _calculate_cost(model_name: str, prompt_tokens: int, completion_tokens: int)
     input_cost = (prompt_tokens / 1_000_000) * pricing.get("input", 0.0)
     output_cost = (completion_tokens / 1_000_000) * pricing.get("output", 0.0)
     
-    return input_cost + output_cost
+    # Handle cases where cached_input might not be in the pricing data or is None
+    cached_input_price = pricing.get("cached_input")
+    cached_input_cost = 0.0
+    if cached_input_price is not None:
+        cached_input_cost = (prompt_tokens / 1_000_000) * cached_input_price
+    
+    return input_cost + output_cost + cached_input_cost
 
 def create_log_entry(
     agent_name: str,
@@ -89,7 +95,7 @@ def create_log_entry(
         "input_tokens": prompt_tokens,
         "output_tokens": completion_tokens,
         "total_tokens": prompt_tokens + completion_tokens,
-        "cost": cost,
+        "cost": cost if cost is not None else 0.0,
     }
 
 class CustomChatOpenAI(ChatOpenAI):
@@ -111,47 +117,3 @@ class CustomChatOpenAI(ChatOpenAI):
     @property
     def total_tokens(self) -> int:
         return self.prompt_tokens + self.completion_tokens
-
-# class MonitoringCrew(Crew):
-#     def _execute_tasks(self, tasks: List[Task], **kwargs) -> List[TaskOutput]:
-#         task_outputs = []
-#         for task in tasks:
-#             agent = self._get_agent_to_use(task)
-#             if not agent:
-#                 raise Exception(f"No agent found for task: {task.description}")
-
-#             # Get the actual LLM and model name
-#             actual_llm = getattr(agent.llm, 'llm', agent.llm)
-#             model_name = getattr(actual_llm, 'model', 'gpt-4')
-
-#             # Estimate input tokens from task description and context
-#             context = self._get_context(task, task_outputs)
-#             input_text = task.description + "\n" + context
-#             task_prompt_tokens = count_tokens(input_text, model_name)
-            
-#             # Execute the task
-#             output = task.execute_sync(context=context)
-#             task_outputs.append(output)
-
-#             # Estimate output tokens from the raw output string
-#             output_text = output.raw if output.raw else ""
-#             task_completion_tokens = count_tokens(output_text, model_name)
-            
-#             task_cost = _calculate_cost(model_name, task_prompt_tokens, task_completion_tokens)
-            
-#             try:
-#                 log_entry = create_log_entry(
-#                     agent.role,
-#                     task.description,
-#                     model_name,
-#                     task_prompt_tokens,
-#                     task_completion_tokens,
-#                     output.raw,
-#                     [tool.name for tool in getattr(task, "tools", [])]
-#                 )
-#                 with open(LOG_FILE, "a") as f:
-#                     f.write(json.dumps(log_entry) + "\n")
-#             except Exception as e:
-#                 print(f"Error in _store_execution_log: {e}")
-
-#         return self._create_crew_output(task_outputs)
