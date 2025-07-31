@@ -1,0 +1,32 @@
+# Virtual Environment
+env/
+venv/
+.venv/
+myenv/
+lead/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Data folder
+data/
+package.txt
+files/*.json
+files/*.csv
+collaboration_reports/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+
+# Git
+.git/
+.gitignore
+
+# OS-specific files
+.DS_Store
+Thumbs.db 

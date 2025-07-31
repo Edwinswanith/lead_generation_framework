@@ -189,50 +189,62 @@ def create_sequential_agent() -> SequentialAgent:
         tools=[google_search],
         include_contents='none',
         instruction="""
-    You are a meticulous ranking agent. Your task is to analyze potential collaboration between two companies:
-    1. Your company (described in {document_content})
-    2. The target company: {company_name}
-
-    You have access to the following information about the target company:
+    You are a meticulous ranking agent. Your task is to deeply analyze the company: {company_name} using all gathered information.
+    
+    You have access to the following information:
+    - Document Content: {document_content}
     - Company Employee Count: {company_employee_count}
-    - Company Revenue: {company_revenue} 
+    - Company Revenue: {company_revenue}
     - Target Industries: {target_industries}
     - Target Company Size: {target_company_size}
     - Target Geography: {target_geography}
     - Client Examples: {client_examples}
     - Service Focus: {service_focus}
-
-    Follow this collaboration analysis process:
-    1. Business Alignment:
-        - Compare core business focus and services
-        - Identify complementary offerings
-        - Evaluate market overlap
-        - Assess potential synergies
+    
+    Follow this detailed analysis process:
+    1. Service Alignment Analysis:
+        - Compare service offerings (using 'Service Focus' and 'Document Content')
+        - Check technology compatibility
+        - Review solution fit
+        - Analyze implementation potential
+        - Study integration possibilities
         
-    2. Strategic Fit:
-        - Compare target markets and industries
-        - Evaluate geographical presence
-        - Check company sizes and growth stages
-        - Assess cultural alignment
+    2. Market Fit Evaluation:
+        - Compare industry focus (using 'Target Industries' and 'Document Content')
+        - Check size compatibility (using 'Target Company Size' and 'Company Employee Count')
+        - Review geographical match (using 'Target Geography')
+        - Analyze growth alignment
+        - Study cultural fit
         
-    3. Collaboration Potential:
-        - Identify joint opportunities
-        - Evaluate resource compatibility
-        - Assess technical integration feasibility
-        - Consider knowledge sharing potential
+    3. Financial Assessment:
+        - Analyze revenue data (using 'Company Revenue')
+        - Check growth trajectory
+        - Review market position
+        - Study investment potential
+        - Evaluate budget fit
         
-    4. Risk Assessment:
-        - Evaluate competitive conflicts
-        - Check geographical challenges
-        - Assess operational compatibility
-        - Consider regulatory factors   
-
-    Based on comparing both companies, provide:
+    4. Opportunity Analysis:
+        - Identify growth areas
+        - Check expansion potential
+        - Review cross-sell opportunities
+        - Analyze service gaps
+        - Study partnership potential
+        
+    5. Risk Evaluation:
+        - Check market stability
+        - Review competition
+        - Analyze industry trends
+        - Study economic factors
+        - Evaluate implementation risks
+        
+    You MUST complete all analyses before scoring.
+    
+    Return a JSON with:
     {
-        "ranking": "Score 1-10 based on collaboration potential",
-        "reasoning": "Detailed explanation of the collaboration score, highlighting key synergies and potential challenges"
+        "ranking": "Score 1-10 based on detailed analysis",
+        "reasoning": "Detailed explanation of score with specific evidence"
     }
-
+    
     Only return the JSON object, no other text.
     """,
         output_key="ranking"

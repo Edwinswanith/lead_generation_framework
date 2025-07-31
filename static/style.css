@@ -1,0 +1,192 @@
+:root {
+    --primary-color: #34495e;    /* Wet Asphalt */
+    --secondary-color: #16a085;  /* Green Sea */
+    --accent-color: #f39c12;     /* Orange */
+    --light-bg: #ecf0f1;         /* Clouds */
+    --dark-text: #2c3e50;        /* Midnight Blue */
+    --light-text: #ffffff;       /* White */
+    --border-color: #bdc3c7;     /* Silver */
+    --hover-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+}
+
+body {
+    background-color: var(--light-bg);
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    color: var(--dark-text);
+}
+
+.header {
+    background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+    padding: 2.5rem 0;
+    margin-bottom: 2rem;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+}
+
+.header h1 {
+    font-weight: 700;
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
+    font-size: 2.2rem;
+}
+
+.upload-form {
+    background: var(--light-text);
+    border-radius: 12px;
+    padding: 1.5rem !important;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.08);
+}
+
+.upload-area {
+    border: 3px dashed var(--border-color);
+    background: #fdfdfd;
+    border-radius: 10px !important;
+    padding: 1.5rem !important;
+    transition: all 0.3s ease;
+}
+
+.upload-area:hover {
+    background-color: #fff;
+    border-color: var(--secondary-color);
+    transform: scale(1.02);
+}
+
+.btn-primary {
+    background: var(--secondary-color);
+    border: none;
+    padding: 0.6rem 1.8rem;
+    font-size: 1rem;
+    border-radius: 8px;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 15px rgba(22, 160, 133, 0.3);
+}
+
+.btn-primary:hover {
+    transform: translateY(-3px) scale(1.05);
+    box-shadow: 0 7px 20px rgba(22, 160, 133, 0.4);
+}
+
+.card {
+    border: none;
+    border-radius: 12px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.07);
+    transition: all 0.3s ease;
+    overflow: hidden;
+}
+
+.card:hover {
+    transform: translateY(-5px);
+    box-shadow: var(--hover-shadow);
+}
+
+.card-header {
+    background: var(--primary-color);
+    color: var(--light-text);
+    border-bottom: none;
+    border-radius: 12px 12px 0 0 !important;
+    padding: 0.8rem 1.2rem;
+}
+
+.card-header h2, .card-header h5 {
+    color: var(--light-text);
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+#logs {
+    height: 300px;
+    background-color: #2c3e50; /* Match with new dark text/primary */
+    color: var(--light-bg);
+    font-family: 'Courier New', monospace;
+    border-radius: 10px;
+    border: none;
+    padding: 0.8rem;
+}
+
+.table {
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+}
+
+.table thead th {
+    background: var(--primary-color);
+    color: white;
+    font-weight: 600;
+    border: none;
+    padding: 0.8rem;
+}
+
+.table-hover tbody tr {
+    transition: all 0.2s ease-in-out;
+}
+
+.table-hover tbody tr:hover {
+    background-color: rgba(22, 160, 133, 0.1);
+    cursor: pointer;
+    transform: scale(1.01);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+    z-index: 10;
+    position: relative;
+}
+
+.text-truncate {
+    max-width: 200px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.loading-spinner {
+    width: 3rem;
+    height: 3rem;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.fade-in {
+    animation: fadeIn 0.5s ease-out;
+}
+
+.agent-log-body {
+    height: 220px;
+    overflow-y: auto;
+    padding: 12px;
+    background-color: #2c3e50; /* Match with new dark text/primary */
+    color: var(--light-bg);
+    font-family: 'Courier New', monospace;
+}
+
+.modal-content {
+    border-radius: 12px;
+    border: none;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+}
+
+.modal-header {
+    background: var(--primary-color);
+    color: white;
+    border-radius: 12px 12px 0 0;
+    border-bottom: none;
+    padding: 1rem;
+}
+
+.modal-body {
+    padding: 1.5rem;
+}
+
+.progress {
+    height: 22px;
+    border-radius: 12px;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.progress-bar {
+    border-radius: 12px;
+    background: linear-gradient(135deg, var(--secondary-color), var(--primary-color));
+}
+
+#fileInput {
+    border-radius: 8px;
+}

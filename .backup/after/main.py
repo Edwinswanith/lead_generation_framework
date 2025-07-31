@@ -50,19 +50,19 @@ def setup_logging(session_id: str) -> logging.Logger:
 
 class JsonFormatter(logging.Formatter):
     def format(self, record):
-        log_record = {
+        if isinstance(record.msg, dict):
+            log_record = record.msg
+            log_record["level"] = record.levelname
+            log_record["timestamp"] = self.formatTime(record)
+            return json.dumps(log_record)
+
+        return json.dumps({
             "level": record.levelname,
+            "message": record.getMessage(),
             "timestamp": self.formatTime(record),
             "agent": getattr(record, 'agent', 'general'),
-            "task": getattr(record, 'task', 'general_task')
-        }
-
-        if isinstance(record.msg, dict):
-            log_record.update(record.msg)
-        else:
-            log_record["message"] = record.getMessage()
-        
-        return json.dumps(log_record)
+            "task": getattr(record, 'task', record.getMessage())
+        })
 
 def handle_final_response(event: Event, report_path: Optional[str] = None) -> None:
     """Handle the final response from an agent."""
@@ -206,25 +206,23 @@ class CompanyInfoExtractorAgent(BaseAgent):
                     agent = self._sub_agents_map.get(event.author)
                     if not agent:
                         continue
-                    
-                    text_content = ""
-                    for part in event.content.parts:
-                        text_content += getattr(part, "text", "")
-                    
-                    self.logger.info({
-                        "agent": agent.name,
-                        "task": f'Output for {ctx.session.state.get("company_name", "Unknown")}',
-                        "output": text_content,
-                    })
 
-                    parsed = self._extract_json_from_text(text_content)
-                    if parsed:
-                        cleaned_parsed = {k: "" if v is None else v for k, v in parsed.items()}
-                        if output_key := getattr(agent, "output_key", None):
-                            aggregated[output_key] = cleaned_parsed
-                        else:
-                            aggregated.update(cleaned_parsed)
-                        ctx.session.state.update(cleaned_parsed)
+                    output_key = getattr(agent, "output_key", None)
+                    
+                    for part in event.content.parts:
+                        text_content = getattr(part, "text", "")
+                        self.logger.info(f"Agent '{agent.name}' produced output: {text_content}", extra={'agent': agent.name, 'task': f'Output for {ctx.session.state.get("company_name", "Unknown")}'})
+
+                        parsed = self._extract_json_from_text(text_content)
+                        if parsed:
+                            cleaned_parsed = {k: "" if v is None else v for k, v in parsed.items()}
+                            if output_key:
+                                aggregated[output_key] = cleaned_parsed
+                                # Also flatten into session state for subsequent agents
+                                ctx.session.state.update(cleaned_parsed)
+                            else:
+                                aggregated.update(cleaned_parsed)
+                                ctx.session.state.update(cleaned_parsed)
 
                 # Fallback to Perplexity tool if initial aggregation is empty
                 if not aggregated:
@@ -232,7 +230,7 @@ class CompanyInfoExtractorAgent(BaseAgent):
                     perplexity_data = await perplexity_research_tool(company, website)
                     cleaned_perplexity_data = {k: "" if v is None else v for k, v in perplexity_data.items()}
                     aggregated.update(cleaned_perplexity_data)
-                    self.logger.info({
+                    self.logger.info(f"Using Perplexity data for {company}", extra={
                         'agent': self.name,
                         'task': 'perplexity_research',
                         'data': cleaned_perplexity_data
@@ -316,11 +314,6 @@ class CompanyInfoExtractorAgent(BaseAgent):
         output_path = Path.cwd() / CSV_OUTPUT
 
         for idx, row in df.iterrows():
-            stop_flag_path = os.path.join(BASE_DIR, 'files', f'{ctx.session.id}.stop')
-            if os.path.exists(stop_flag_path):
-                self.logger.info(f"Stop signal detected for session {ctx.session.id}. Stopping agent.", extra={'agent': self.name, 'task': 'stop_signal'})
-                break
-
             company = str(row["Company Name"]).strip()
             website = str(row["Website"]).strip()
 
@@ -364,41 +357,15 @@ async def main(filepath: str, session_id: Optional[str] = None) -> None:
     logger = setup_logging(session_id) if session_id else module_logger
     adk_session_id = session_id or "default_session"
 
-    sess_svc = InMemorySessionService()
     agent = CompanyInfoExtractorAgent("CompanyInfoExtractor", logger=logger)
-    try:
-        session_data = await sess_svc.get_session(
-            app_name=APP_NAME,
-            user_id=USER_ID,
-            session_id=adk_session_id
-        )
-        await sess_svc.update_session_state(
-            app_name=APP_NAME,
-            user_id=USER_ID,
-            session_id=adk_session_id,
-            state={STATE_INPUT_FILE: filepath}
-        )
-    except:
-        await sess_svc.create_session(
-            app_name=APP_NAME,
-            user_id=USER_ID,
-            session_id=adk_session_id,
-            state={STATE_INPUT_FILE: filepath}
-        )
+    sess_svc = InMemorySessionService()
 
-    # Clear old files for this session before processing new one
-    file_folder = os.path.join(BASE_DIR, 'files')
-    logs_folder = os.path.join(BASE_DIR, 'files')
-    logs_path = os.path.join(logs_folder, f'{adk_session_id}.json')
-    companies_path = os.path.join(file_folder, f'{adk_session_id}.csv')
-    
-    # Create logs directory if it doesn't exist
-    os.makedirs(logs_folder, exist_ok=True)
-    os.makedirs(file_folder, exist_ok=True)
-    
-    if os.path.exists(companies_path):
-        os.remove(companies_path)
-
+    await sess_svc.create_session(
+        app_name=APP_NAME,
+        user_id=USER_ID,
+        session_id=adk_session_id,
+        state={STATE_INPUT_FILE: filepath}
+    )
     runner = Runner(agent=agent, app_name=APP_NAME, session_service=sess_svc)
 
     start_message = types.Content(role="user", parts=[types.Part(text="Start")])

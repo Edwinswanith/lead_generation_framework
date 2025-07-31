@@ -45,6 +45,7 @@ PRICING_DATA = {
     "gemini-1.5-pro-preview-0409": {"input": 7.00, "output": 21.00},
     "gemini-1.5-pro-latest": {"input": 7.00, "output": 21.00},
     "gemini-1.5-flash": {"input": 0.35, "output": 1.05},
+    "gemini-2.0-flash": {"input": 0.50, "output": 1.50},
     "gemini-1.0-pro": {"input": 0.50, "output": 1.50},
     "gemini-1.0-pro-001": {"input": 0.50, "output": 1.50},
     "gemini-1.0-pro-002": {"input": 0.50, "output": 1.50},
@@ -57,4 +58,5 @@ PRICING_DATA = {
     "gemini-2.0-pro-exp-002": {"input": 2.00, "cached_input": 0.50, "output": 8.00},
     "gemini-2.0-pro-exp-003": {"input": 2.00, "cached_input": 0.50, "output": 8.00},
     "gemini-2.0-pro-exp-004": {"input": 2.00, "cached_input": 0.50, "output": 8.00},
+    "gemini-2.0-flash-lite": {"input": 0.25, "output": 0.75}
 } 

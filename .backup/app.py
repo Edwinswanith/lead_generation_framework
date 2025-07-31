@@ -207,53 +207,9 @@ def generate_leads():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@app.route('/status')
-def status():
-    session_id = session.get('session_id')
-    if not session_id:
-        return jsonify({'running': False})
-
-    running_flag_path = os.path.join(BASE_DIR, 'files', f'{session_id}.running')
-    is_running = os.path.exists(running_flag_path)
-    return jsonify({'running': is_running})
-
-@app.route('/stop-agent', methods=['POST'])
-def stop_agent():
-    session_id = session.get('session_id')
-    if not session_id:
-        return jsonify({"error": "No active session"}), 400
-
-    stop_flag_path = os.path.join(BASE_DIR, 'files', f'{session_id}.stop')
-    with open(stop_flag_path, 'w') as f:
-        f.write('stop')
-    
-    return jsonify({"message": "Agent stop signal sent."})
-
-@app.route('/clear-data', methods=['POST'])
-def clear_data():
-    session_id = session.get('session_id')
-    if not session_id:
-        return jsonify({"error": "No active session"}), 400
-
-    FILE_FOLDER = os.path.join(BASE_DIR, 'files')
-    files_to_delete = [
-        f'{session_id}.csv',
-        f'{session_id}.json',
-        f'{session_id}.running',
-        f'{session_id}.stop'
-    ]
-
-    for filename in files_to_delete:
-        filepath = os.path.join(FILE_FOLDER, filename)
-        if os.path.exists(filepath):
-            os.remove(filepath)
-            
-    return jsonify({"message": "Session data cleared."})
-
 def run_agent_with_updates(filepath: str, session_id: str, total_rows: int):
     """Run the agent and periodically send updates via WebSocket."""
     running_flag_path = os.path.join(BASE_DIR, 'files', f'{session_id}.running')
-    stop_flag_path = os.path.join(BASE_DIR, 'files', f'{session_id}.stop')
 
     def agent_task():
         """Wrapper function to run the agent."""
@@ -267,10 +223,6 @@ def run_agent_with_updates(filepath: str, session_id: str, total_rows: int):
         agent_thread.start()
 
         while agent_thread.is_alive():
-            if os.path.exists(stop_flag_path):
-                print(f"Stop signal detected for session {session_id}. Stopping agent.")
-                break 
-
             with app.app_context():
                 stream_and_collect_data(session_id, total_rows)
             socketio.sleep(2)
@@ -282,9 +234,6 @@ def run_agent_with_updates(filepath: str, session_id: str, total_rows: int):
     finally:
         if os.path.exists(running_flag_path):
             os.remove(running_flag_path)
-        
-        if os.path.exists(stop_flag_path):
-            os.remove(stop_flag_path)
         
         # The file path is relative to the agent's execution, which is inside `Lead_generation`
         if os.path.exists(filepath):

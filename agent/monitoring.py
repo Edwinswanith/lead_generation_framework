@@ -20,13 +20,16 @@ LOG_FILE = os.path.join(MONITORING_DIR, "crew_log.json")
 def count_tokens(string: str, model_name: str = "gpt-4") -> int:
     """Returns the number of tokens in a text string."""
     try:
-        if model_name.startswith("google/"):
-            # Use Google's token counter for their models
-            prediction_client = aiplatform.gapic.PredictionServiceClient()
-            return prediction_client.count_tokens(string).total_tokens
-        else:
-            encoding = tiktoken.encoding_for_model(model_name)
-            return len(encoding.encode(string))
+        # Handle Google's model names, which may not be in tiktoken
+        if model_name.startswith("gemini"):
+            # A simple approximation: 1 token ~= 4 characters.
+            # This is a fallback and might not be perfectly accurate.
+            # For more precise token counting with Google models, you'd use
+            # the generativeai library's count_tokens method.
+            return len(string) // 4
+
+        encoding = tiktoken.encoding_for_model(model_name)
+        return len(encoding.encode(string))
     except KeyError:
         print(f"Warning: model {model_name} not found. Using cl100k_base encoding.")
         encoding = tiktoken.get_encoding("cl100k_base")

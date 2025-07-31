@@ -316,11 +316,6 @@ class CompanyInfoExtractorAgent(BaseAgent):
         output_path = Path.cwd() / CSV_OUTPUT
 
         for idx, row in df.iterrows():
-            stop_flag_path = os.path.join(BASE_DIR, 'files', f'{ctx.session.id}.stop')
-            if os.path.exists(stop_flag_path):
-                self.logger.info(f"Stop signal detected for session {ctx.session.id}. Stopping agent.", extra={'agent': self.name, 'task': 'stop_signal'})
-                break
-
             company = str(row["Company Name"]).strip()
             website = str(row["Website"]).strip()
 
