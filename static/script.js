@@ -56,13 +56,16 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function updateTokens(data) {
         const totalCostEl = document.getElementById('total-cost');
+        const totalCostContainer = document.getElementById('total-cost-container');
         if (totalCostEl) totalCostEl.textContent = `$${data.total_cost.toFixed(2)}`;
+        if (totalCostContainer) totalCostContainer.style.display = 'block';
     }
 
     function updateProgress(data) {
         const progressBar = document.getElementById('progress-bar');
         const progressText = document.getElementById('progress-text');
         const progressContainer = document.getElementById('progress-container');
+        const emailActionsGroup = document.getElementById('email-actions-group');
         
         if (progressContainer) {
             if (data.total > 0) {
@@ -80,15 +83,18 @@ document.addEventListener('DOMContentLoaded', function() {
                         progressBar.classList.add('bg-success');
                     }
                     if (progressText) progressText.textContent += " - Complete!";
+                    if (emailActionsGroup) emailActionsGroup.style.display = 'inline-flex';
                     stopTimer();
                 } else {
                     if (progressBar) {
                         progressBar.classList.add('progress-bar-animated');
                         progressBar.classList.remove('bg-success');
                     }
+                    if (emailActionsGroup) emailActionsGroup.style.display = 'none';
                 }
             } else {
                 progressContainer.style.display = 'none';
+                if (emailActionsGroup) emailActionsGroup.style.display = 'none';
             }
         }
     }
@@ -253,6 +259,9 @@ document.addEventListener('DOMContentLoaded', function() {
         if (stopButton) stopButton.disabled = false;
         if (clearButton) clearButton.disabled = true;
 
+        const emailActionsGroup = document.getElementById('email-actions-group');
+        if (emailActionsGroup) emailActionsGroup.style.display = 'none';
+
         if (agentMonitoringContainer) agentMonitoringContainer.innerHTML = '';
         if (companiesBody) companiesBody.innerHTML = '';
         const totalCostEl = document.getElementById('total-cost');
@@ -363,6 +372,9 @@ document.addEventListener('DOMContentLoaded', function() {
             const resultsSection = document.getElementById('results-section');
             if (resultsSection) resultsSection.style.display = 'none';
             
+            const emailActionsGroup = document.getElementById('email-actions-group');
+            if (emailActionsGroup) emailActionsGroup.style.display = 'none';
+            
             if (startButton) {
                 startButton.disabled = false;
                 startButton.innerHTML = '<i class="fas fa-play-circle me-2"></i>Launch Agent';
@@ -374,4 +386,92 @@ document.addEventListener('DOMContentLoaded', function() {
             alert('An error occurred while clearing data.');
         });
     };
+
+    window.sendBulkEmails = function(mode) {
+        const emailModal = new bootstrap.Modal(document.getElementById('emailModal'));
+        emailModal.show();
+        
+        const emailStatusList = document.getElementById('email-status-list');
+        const emailProgressBar = document.getElementById('email-progress-bar');
+        const emailProgressText = document.getElementById('email-progress-text');
+        
+        // Clear previous status
+        if (emailStatusList) emailStatusList.innerHTML = '';
+        if (emailProgressBar) {
+            emailProgressBar.style.width = '0%';
+            emailProgressBar.classList.add('progress-bar-animated');
+            emailProgressBar.classList.remove('bg-success', 'bg-danger');
+        }
+        
+        fetch('/send-bulk-emails', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ mode: mode })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert('Error: ' + data.error);
+                emailModal.hide();
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('An error occurred while sending emails.');
+            emailModal.hide();
+        });
+    };
+    
+    // Socket event for email progress updates
+    socket.on('email_progress', function(data) {
+        const emailStatusList = document.getElementById('email-status-list');
+        const emailProgressBar = document.getElementById('email-progress-bar');
+        const emailProgressText = document.getElementById('email-progress-text');
+        
+        if (data.status) {
+            // Add status item
+            if (emailStatusList) {
+                const statusItem = document.createElement('div');
+                statusItem.className = `alert ${data.status.success ? 'alert-success' : 'alert-danger'} py-2`;
+                
+                statusItem.innerHTML = `
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>${data.status.company_name}</strong> - ${data.status.email || 'No email'}
+                        </div>
+                        <div>
+                            ${data.status.success ? '<i class="fas fa-check-circle text-success"></i>' : '<i class="fas fa-times-circle text-danger"></i>'}
+                        </div>
+                    </div>
+                    <small>${data.status.message}</small>
+                `;
+                emailStatusList.appendChild(statusItem);
+                emailStatusList.scrollTop = emailStatusList.scrollHeight;
+            }
+        }
+        
+        if (data.progress) {
+            const percentage = (data.progress.sent / data.progress.total) * 100;
+            if (emailProgressBar) {
+                emailProgressBar.style.width = percentage + '%';
+                emailProgressBar.setAttribute('aria-valuenow', percentage);
+            }
+            if (emailProgressText) {
+                emailProgressText.textContent = `${data.progress.sent} / ${data.progress.total}`;
+            }
+            
+            // If complete
+            if (data.progress.sent === data.progress.total) {
+                if (emailProgressBar) {
+                    emailProgressBar.classList.remove('progress-bar-animated');
+                    emailProgressBar.classList.add('bg-success');
+                }
+                if (emailProgressText) {
+                    emailProgressText.textContent += " - Complete!";
+                }
+            }
+        }
+    });
 });

@@ -17,7 +17,7 @@ def create_sequential_agent() -> SequentialAgent:
     You are a meticulous corporate researcher. Research the company: {company_name}.
     Focus on finding the CEO's information. Return a JSON with the following fields:
     - ceo_name: The full name of the current CEO/President
-    - ceo_email: The CEO's business email address
+    - ceo_email: The CEO's valid business email address
     
     Follow these steps to find accurate information:
     1. First check the company's website, especially About/Team/Contact pages
@@ -26,24 +26,25 @@ def create_sequential_agent() -> SequentialAgent:
     4. Look for press releases and news articles
     5. Verify information across multiple sources when possible
     
-    For email, try:
-    1. Company contact/about pages
-    2. Email patterns like firstname@company.com
-    3. Professional networks and directories
+    For email, specifically target the CEO's direct email:
+    1. Company leadership/about pages with executive contact details
+    2. CEO's professional LinkedIn profile
+    3. Executive directories and business databases
+    4. Press releases or interviews mentioning CEO contact
     
-    For revenue/employees/founding year:
-    1. Company about pages
-    2. Business registries
-    3. LinkedIn company profile
-    4. Industry databases
+    IMPORTANT: Only find the CEO's personal business email. 
+    Do NOT include:
+    - General sales emails (sales@, info@, contact@)
+    - General customer service emails
+    - Marketing or support emails
+    - Anyone else's email except the CEO's
     
-    Return null ONLY if you cannot find the information after exhausting all sources.
-    Only return the JSON object, no additional text.
+    Return null ONLY if you cannot find the CEO's specific email after exhausting all sources.
     
     Return a JSON with:
     {
         "ceo_name": "Full verified name",
-        "ceo_email": "Verified business email"
+        "ceo_email": "CEO's verified business email only"
     }
     
     Only return the JSON object, no other text.
@@ -56,28 +57,63 @@ def create_sequential_agent() -> SequentialAgent:
         model=GEMINI_MODEL,
         tools=[google_search],
         instruction="""
-    You are a meticulous corporate researcher. Research the company: {company_name}.
-    Focus on finding the company's revenue information. Return a JSON with the following fields:
-    - company_revenue: The company's revenue
+    You are a meticulous corporate researcher. Your task is to deeply research the company: {company_name} and find accurate revenue information.
     
-    Follow these steps to find accurate information:
-    1. First check the company's website, especially About/Team/Contact pages
-    2. Search LinkedIn for company profile and CEO/leadership profiles
-    3. Check business directories like Crunchbase, ZoomInfo
-    4. Look for press releases and news articles
-    5. Verify information across multiple sources when possible
+    Follow this comprehensive research process:
+    1. Financial Documents & Reports:
+        - Search for annual reports and SEC filings
+        - Check quarterly earnings reports
+        - Review investor relations pages
+        - Find financial statements and disclosures
+        
+    2. Business Databases & Registries:
+        - Search Crunchbase for funding and revenue data
+        - Check D&B (Dun & Bradstreet) company records
+        - Review ZoomInfo financial information
+        - Search Bloomberg company profiles
+        
+    3. Company Website Deep Analysis:
+        - Thoroughly check About/Company pages
+        - Review investor relations sections
+        - Search press releases for financial announcements
+        - Check company milestone achievements
+        
+    4. Professional Networks & Industry Sources:
+        - Analyze LinkedIn company insights
+        - Search industry reports mentioning the company
+        - Check trade publications and industry databases
+        - Review competitor analysis reports
+        
+    5. News & Media Research:
+        - Search financial news articles
+        - Check business journal coverage
+        - Review acquisition/funding announcements
+        - Find interview mentions of company size/revenue
+        
+    6. Alternative Revenue Indicators:
+        - Research funding rounds and valuations
+        - Check contract announcements and deals
+        - Search for revenue growth mentions
+        - Find market share and industry positioning data
+        
+    IMPORTANT GUIDELINES:
+    - Prioritize recent data (within last 2 years)
+    - Cross-verify information from multiple sources
+    - Look for exact figures when possible
+    - If exact revenue unavailable, find revenue ranges
+    - Note the year/period for revenue figures
     
-    For revenue/employees/founding year:
-    1. Company about pages
-    2. Business registries
-    3. LinkedIn company profile
-    4. Industry databases
+    EXAMPLE OUTPUT FORMAT:
+    - For exact figures: "$5200000" or "€15000000"
+    - For ranges: "$1000000-$5000000" or "$10000000-$50000000"
+    - For estimates: "$25000000"
     
-    Return null ONLY if you cannot find the information after exhausting all sources.
-    Only return the JSON object, no additional text.
+    You MUST exhaust all these sources before returning null.
+    Return only the revenue amount with currency symbol, no additional text.
+    
     Return a JSON with:
     {
-        "company_revenue": "Verified revenue figure"
+        "company_revenue": "Revenue amount with currency symbol only"
     }
     
     Only return the JSON object, no other text.
@@ -123,18 +159,18 @@ def create_sequential_agent() -> SequentialAgent:
         - Review founder interviews
         - Find anniversary announcements
         
-    EXAMPLE OUTPUT:
-        - output should be in digit number only.
-        - Dont include any other text or symbols.
-        - Dont include [] or {} or any other symbols.
-        - example company_employee_count: 21 to 40 or 41 or 21
-        - example company_founding_year: 2012 or 2014
-    You MUST exhaust all these sources before returning null.
+    IMPORTANT OUTPUT REQUIREMENTS:
+    - Return only integer numbers for both fields
+    - No text, symbols, ranges, or explanations
+    - For employee count: return exact number (e.g. 25, 150)
+    - For founding year: return 4-digit year (e.g. 2012, 2014)
+    - If multiple companies exist with same name, use additional context like location or industry to identify the correct one
+    - Return null only if information cannot be found after exhaustive search
     
     Return a JSON with:
     {
-        "company_employee_count": "Verified employee count",
-        "company_founding_year": "Verified founding year"
+        "company_employee_count": integer_only,
+        "company_founding_year": integer_only
     }
     
     Only return the JSON object, no other text.
@@ -248,3 +284,5 @@ def create_sequential_agent() -> SequentialAgent:
             ranking_agent
         ]
     )
+
+

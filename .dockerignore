@@ -17,6 +17,7 @@ package.txt
 files/*.json
 files/*.csv
 collaboration_reports/
+email_drafts/
 
 # IDE and editor files
 .vscode/
@@ -30,3 +31,6 @@ collaboration_reports/
 # OS-specific files
 .DS_Store
 Thumbs.db 
+
+.backup
+Lead.zip

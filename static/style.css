@@ -25,7 +25,7 @@ body {
 .header h1 {
     font-weight: 700;
     text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
-    font-size: 2.2rem;
+    font-size: 2.5rem;
 }
 
 .upload-form {
@@ -50,18 +50,90 @@ body {
 }
 
 .btn-primary {
-    background: var(--secondary-color);
+    background: linear-gradient(45deg, var(--secondary-color), var(--primary-color));
+    color: var(--light-text);
     border: none;
-    padding: 0.6rem 1.8rem;
-    font-size: 1rem;
-    border-radius: 8px;
+    font-weight: 600;
+    border-radius: 50px;
     transition: all 0.3s ease;
-    box-shadow: 0 4px 15px rgba(22, 160, 133, 0.3);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+    position: relative;
+    overflow: hidden;
 }
 
-.btn-primary:hover {
-    transform: translateY(-3px) scale(1.05);
-    box-shadow: 0 7px 20px rgba(22, 160, 133, 0.4);
+.btn-danger {
+    background: #e74c3c;
+    color: var(--light-text);
+    border: none;
+    font-weight: 600;
+    border-radius: 50px;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 15px rgba(231, 76, 60, 0.3);
+    position: relative;
+    overflow: hidden;
+}
+
+.btn-warning {
+    background: var(--accent-color);
+    color: var(--light-text);
+    border: none;
+    font-weight: 600;
+    border-radius: 50px;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 15px rgba(243, 156, 18, 0.3);
+    position: relative;
+    overflow: hidden;
+}
+
+.btn-primary:hover, .btn-danger:hover, .btn-warning:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 7px 20px rgba(0, 0, 0, 0.25);
+}
+
+.btn-primary::before, .btn-danger::before, .btn-warning::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(120deg, transparent, rgba(255, 255, 255, 0.25), transparent);
+    transition: left 0.7s ease;
+}
+
+.btn-primary:hover::before, .btn-danger:hover::before, .btn-warning:hover::before {
+    left: 100%;
+}
+
+.form-control {
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    box-shadow: none !important;
+    transition: all 0.3s ease;
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
+}
+
+.form-control:focus {
+    border-color: var(--secondary-color);
+    box-shadow: 0 0 0 4px rgba(22, 160, 133, 0.2) !important;
+    background-color: #fff;
+    color: var(--dark-text);
+}
+
+.form-control::file-selector-button {
+    background: var(--primary-color);
+    color: var(--light-text);
+    border: none;
+    padding: 0.75rem 1.5rem;
+    border-radius: 8px 0 0 8px;
+    margin: -0.75rem 1rem -0.75rem -0.75rem;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+}
+
+.form-control::file-selector-button:hover {
+    background: var(--secondary-color);
 }
 
 .card {
@@ -187,6 +259,114 @@ body {
     background: linear-gradient(135deg, var(--secondary-color), var(--primary-color));
 }
 
-#fileInput {
+.nav-pills .nav-link {
+    background-color: #f8f9fa;
+    color: var(--dark-text);
+    border-radius: 0.5rem;
+    margin: 0 5px;
+    transition: all 0.3s ease;
+    font-weight: 500;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+}
+
+.nav-pills .nav-link.active, .nav-pills .show>.nav-link {
+    background-color: var(--secondary-color);
+    color: var(--light-text);
+    box-shadow: 0 4px 10px rgba(22, 160, 133, 0.3);
+    transform: translateY(-2px);
+}
+
+.tab-content {
+    border: none;
+    padding: 0;
+}
+
+.tab-pane {
+    padding: 0;
+}
+
+/* Email Status Alerts */
+#email-status-list .alert {
+    margin-bottom: 10px;
     border-radius: 8px;
+    border: none;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    transition: all 0.3s ease;
+}
+
+#email-status-list .alert:hover {
+    transform: translateX(5px);
+    box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+}
+
+#email-status-list .alert-success {
+    background-color: rgba(22, 160, 133, 0.1);
+    color: #117a65;
+    border-left: 4px solid #16a085;
+}
+
+#email-status-list .alert-danger {
+    background-color: rgba(231, 76, 60, 0.1);
+    color: #c0392b;
+    border-left: 4px solid #e74c3c;
+}
+
+/* Send Emails Button */
+#send-emails-btn {
+    background: linear-gradient(45deg, #27ae60, #16a085);
+    color: var(--light-text);
+    border: none;
+    font-weight: 600;
+    border-radius: 50px;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 15px rgba(39, 174, 96, 0.3);
+}
+
+#send-emails-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(39, 174, 96, 0.4);
+}
+
+/* Email Modal Progress Bar */
+#email-progress-bar {
+    background: linear-gradient(135deg, #27ae60, #16a085);
+}
+
+/* Email Modal Styling */
+#emailModal .modal-header {
+    background: linear-gradient(135deg, #27ae60, #16a085);
+}
+
+/* Email Actions Dropdown */
+#email-actions-group .dropdown-toggle {
+    background: linear-gradient(45deg, #3498db, #2980b9);
+    border: none;
+    font-weight: 600;
+}
+
+#email-actions-group .dropdown-toggle:hover {
+    background: linear-gradient(45deg, #2980b9, #21618c);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(52, 152, 219, 0.4);
+}
+
+#email-actions-group .dropdown-menu {
+    border: none;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+#email-actions-group .dropdown-item {
+    padding: 10px 20px;
+    transition: all 0.3s ease;
+}
+
+#email-actions-group .dropdown-item:hover {
+    background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+    transform: translateX(5px);
+}
+
+#email-actions-group .dropdown-item i {
+    width: 20px;
 }

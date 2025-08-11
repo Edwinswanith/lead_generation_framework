@@ -11,11 +11,13 @@ from flask_sqlalchemy import SQLAlchemy
 import pandas as pd
 import os
 import json
-from datetime import timedelta
+from datetime import timedelta, datetime
 import uuid
 from eventlet.patcher import original
 real_threading = original('threading')
 load_dotenv()
+import re
+from emails import send_emails_task
 
 app = Flask(__name__)
 socketio = SocketIO(app, async_mode='eventlet', cors_allowed_origins="*")
@@ -54,6 +56,7 @@ with app.app_context():
     db.create_all()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+app.config['BASE_DIR'] = BASE_DIR
 
 @app.route('/')
 def index():
@@ -68,51 +71,51 @@ def stream_and_collect_data(session_id: str, total_rows: int = 0):
         return
 
     with app.app_context():
-        # Stream logs
-        file_name = session_id
-        logs_path = os.path.join(BASE_DIR, 'files', f'{file_name}.json')
-        if os.path.exists(logs_path):
-            with open(logs_path, 'r') as f:
-                logs = [json.loads(line) for line in f if line.strip()]
-            
-            grouped_logs = {}
-            for log in logs:
-                agent = log.get('agent', 'general')
-                if agent not in grouped_logs:
-                    grouped_logs[agent] = []
-                grouped_logs[agent].append(log)
-            socketio.emit('logs_update', grouped_logs, room=session_id)
+        # Create session directory if it doesn't exist
+        session_dir = os.path.join(BASE_DIR, 'files', session_id)
+        os.makedirs(session_dir, exist_ok=True)
 
-        # Collect token usage data
-        token_usage = {
-            'total_input_tokens': 0,
-            'total_output_tokens': 0,
-            'total_cost': 0.0
-        }
+        # Stream logs
+        logs_path = os.path.join(session_dir, 'logs.json')
         if os.path.exists(logs_path):
-            with open(logs_path, 'r') as f:
-                for line in f:
-                    if line.strip():
-                        log = json.loads(line)
-                        token_usage['total_input_tokens'] += log.get('input_tokens', 0)
-                        token_usage['total_output_tokens'] += log.get('output_tokens', 0)
-                        token_usage['total_cost'] += log.get('cost', 0.0)
-        
-        socketio.emit('token_update', token_usage, room=session_id)
+            try:
+                with open(logs_path, 'r') as f:
+                    logs = [json.loads(line) for line in f if line.strip()]
+                
+                grouped_logs = {}
+                for log in logs:
+                    agent = log.get('agent', 'general')
+                    if agent not in grouped_logs:
+                        grouped_logs[agent] = []
+                    grouped_logs[agent].append(log)
+                socketio.emit('logs_update', grouped_logs, room=session_id)
+
+                # Collect token usage data
+                token_usage = {
+                    'total_input_tokens': 0,
+                    'total_output_tokens': 0,
+                    'total_cost': 0.0
+                }
+                for log in logs:
+                    token_usage['total_input_tokens'] += log.get('input_tokens', 0)
+                    token_usage['total_output_tokens'] += log.get('output_tokens', 0)
+                    token_usage['total_cost'] += log.get('cost', 0.0)
+                
+                socketio.emit('token_update', token_usage, room=session_id)
+            except Exception as e:
+                print(f"Error reading logs file: {e}")
 
         # Collect enriched companies data and emit progress
-        companies_path = os.path.join(BASE_DIR, 'files', f'{session_id}.csv')
+        companies_path = os.path.join(session_dir, 'companies.csv')
         processed_rows = 0
         if os.path.exists(companies_path):
             try:
-                df = pd.read_csv(companies_path)
+                df = pd.read_csv(companies_path, engine='python', on_bad_lines='warn')
                 df = df.fillna('')
                 processed_rows = len(df)
                 socketio.emit('companies_update', df.to_dict(orient='records'), room=session_id)
-            except (pd.errors.ParserError, pd.errors.EmptyDataError):
-                # This can happen if the agent is still writing to the file, or if the file is empty.
-                # We can just ignore it and try again on the next poll.
-                print(f"Could not parse {companies_path}. It might be in the process of being written or empty. Retrying.")
+            except Exception as e:
+                print(f"Could not parse {companies_path}. It might be in the process of being written, empty, or contain errors. Error: {e}")
         
         current_total_rows = total_rows if total_rows > 0 else session.get('total_rows', 0)
         socketio.emit('progress_update', {
@@ -138,8 +141,8 @@ def get_enriched_companies_data():
         return jsonify([])
         
     try:
-        file_path = os.path.join(BASE_DIR, 'files', f'{session_id}.csv')
-        df = pd.read_csv(file_path)
+        file_path = os.path.join(BASE_DIR, 'files', session_id, 'companies.csv')
+        df = pd.read_csv(file_path, engine='python', on_bad_lines='warn')
         df = df.fillna('')
         return jsonify(df.to_dict(orient='records'))
     except (FileNotFoundError, pd.errors.ParserError, pd.errors.EmptyDataError):
@@ -157,22 +160,23 @@ def generate_leads():
             return jsonify({"error": "No selected file"}), 400
             
         if input_file:
-            FILE_FOLDER = os.path.join(BASE_DIR, 'files')
-            os.makedirs(FILE_FOLDER, exist_ok=True)
-            
-            filename = input_file.filename
-            filepath = os.path.join(FILE_FOLDER, filename)
-            input_file.save(filepath)
-            print(f"File saved to {filepath}")
-            
             session_id = session.get('session_id')
             if not session_id:
                 session_id = str(uuid.uuid4())
                 session['session_id'] = session_id
 
+            # Create session directory
+            session_dir = os.path.join(BASE_DIR, 'files', session_id)
+            os.makedirs(session_dir, exist_ok=True)
+            
+            filename = input_file.filename
+            filepath = os.path.join(session_dir, filename)
+            input_file.save(filepath)
+            print(f"File saved to {filepath}")
+
             try:
                 if filename.endswith('.csv'):
-                    df_input = pd.read_csv(filepath)
+                    df_input = pd.read_csv(filepath, engine='python', on_bad_lines='warn')
                 elif filename.endswith(('.xls', '.xlsx')):
                     df_input = pd.read_excel(filepath)
                 else:
@@ -186,15 +190,15 @@ def generate_leads():
                 print(f"Could not read input file to get total rows: {e}")
                 session['total_rows'] = 0
 
-            logs_path = os.path.join(FILE_FOLDER, f'{session_id}.json')
+            logs_path = os.path.join(session_dir, 'logs.json')
             if os.path.exists(logs_path):
                 os.remove(logs_path)
 
-            companies_path = os.path.join(FILE_FOLDER, f'{session_id}.csv')
+            companies_path = os.path.join(session_dir, 'companies.csv')
             if os.path.exists(companies_path):
                 os.remove(companies_path)
 
-            running_flag_path = os.path.join(FILE_FOLDER, f'{session_id}.running')
+            running_flag_path = os.path.join(session_dir, 'running')
             if os.path.exists(running_flag_path):
                 os.remove(running_flag_path)
                 
@@ -213,7 +217,7 @@ def status():
     if not session_id:
         return jsonify({'running': False})
 
-    running_flag_path = os.path.join(BASE_DIR, 'files', f'{session_id}.running')
+    running_flag_path = os.path.join(BASE_DIR, 'files', session_id, 'running')
     is_running = os.path.exists(running_flag_path)
     return jsonify({'running': is_running})
 
@@ -223,7 +227,7 @@ def stop_agent():
     if not session_id:
         return jsonify({"error": "No active session"}), 400
 
-    stop_flag_path = os.path.join(BASE_DIR, 'files', f'{session_id}.stop')
+    stop_flag_path = os.path.join(BASE_DIR, 'files', session_id, 'stop')
     with open(stop_flag_path, 'w') as f:
         f.write('stop')
     
@@ -231,29 +235,24 @@ def stop_agent():
 
 @app.route('/clear-data', methods=['POST'])
 def clear_data():
+    import shutil
+    
     session_id = session.get('session_id')
     if not session_id:
         return jsonify({"error": "No active session"}), 400
 
-    FILE_FOLDER = os.path.join(BASE_DIR, 'files')
-    files_to_delete = [
-        f'{session_id}.csv',
-        f'{session_id}.json',
-        f'{session_id}.running',
-        f'{session_id}.stop'
-    ]
-
-    for filename in files_to_delete:
-        filepath = os.path.join(FILE_FOLDER, filename)
-        if os.path.exists(filepath):
-            os.remove(filepath)
+    # Remove session directory and all its contents
+    session_dir = os.path.join(BASE_DIR, 'files', session_id)
+    if os.path.exists(session_dir):
+        shutil.rmtree(session_dir)
             
     return jsonify({"message": "Session data cleared."})
 
 def run_agent_with_updates(filepath: str, session_id: str, total_rows: int):
     """Run the agent and periodically send updates via WebSocket."""
-    running_flag_path = os.path.join(BASE_DIR, 'files', f'{session_id}.running')
-    stop_flag_path = os.path.join(BASE_DIR, 'files', f'{session_id}.stop')
+    session_dir = os.path.join(BASE_DIR, 'files', session_id)
+    running_flag_path = os.path.join(session_dir, 'running')
+    stop_flag_path = os.path.join(session_dir, 'stop')
 
     def agent_task():
         """Wrapper function to run the agent."""
@@ -286,7 +285,6 @@ def run_agent_with_updates(filepath: str, session_id: str, total_rows: int):
         if os.path.exists(stop_flag_path):
             os.remove(stop_flag_path)
         
-        # The file path is relative to the agent's execution, which is inside `Lead_generation`
         if os.path.exists(filepath):
             os.remove(filepath)
             print(f"File {filepath} removed.")
@@ -299,7 +297,7 @@ def get_logs():
         return jsonify({})
         
     try:
-        logs_path = os.path.join(BASE_DIR, 'files', f'{session_id}.json')
+        logs_path = os.path.join(BASE_DIR, 'files', session_id, 'logs.json')
         with open(logs_path, 'r') as f:
             logs = [json.loads(line) for line in f if line.strip()]
         
@@ -320,11 +318,11 @@ def download_file():
     if not session_id:
         return jsonify({"error": "No active session found"}), 400
 
-    file_path = os.path.join(BASE_DIR, 'files', f'{session_id}.csv')
-    logs_path = os.path.join(BASE_DIR, 'files', f'{session_id}.json')
+    file_path = os.path.join(BASE_DIR, 'files', session_id, 'companies.csv')
+    logs_path = os.path.join(BASE_DIR, 'files', session_id, 'logs.json')
 
     # Check if processing is still ongoing
-    agent_running_path = os.path.join(BASE_DIR, 'files', f'{session_id}.running')
+    agent_running_path = os.path.join(BASE_DIR, 'files', session_id, 'running')
     if os.path.exists(agent_running_path):
         return jsonify({"error": "File is still being generated, please try again in a few seconds"}), 202
 
@@ -341,6 +339,62 @@ def download_file():
         )
     except Exception as e:
         return jsonify({"error": f"Error downloading file: {str(e)}"}), 500
+
+
+@app.route('/send-bulk-emails', methods=['POST'])
+def send_bulk_emails():
+    session_id = session.get('session_id')
+    if not session_id:
+        return jsonify({"error": "No active session"}), 400
+    
+    data = request.get_json()
+    mode = data.get('mode', 'draft') if data else 'draft'
+    
+    companies_path = os.path.join(BASE_DIR, 'files', session_id, 'companies.csv')
+    if not os.path.exists(companies_path):
+        return jsonify({"error": "No companies data found"}), 404
+    
+    # Pass socketio and app objects to the background task
+    socketio.start_background_task(send_emails_task, session_id, companies_path, mode, socketio, app)
+    
+    return jsonify({"message": f"Email {mode} process started"})
+
+
+@app.route('/download-email-drafts', methods=['POST'])
+def download_email_drafts():
+    import zipfile
+    from io import BytesIO
+    
+    session_id = session.get('session_id')
+    if not session_id:
+        return jsonify({"error": "No active session"}), 400
+    
+    drafts_dir = os.path.join(BASE_DIR, 'email_drafts', session_id)
+    if not os.path.exists(drafts_dir):
+        return jsonify({"error": "No email drafts found"}), 404
+    
+    # Create a zip file in memory
+    zip_buffer = BytesIO()
+    
+    try:
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            # Add all files from the drafts directory
+            for root, dirs, files in os.walk(drafts_dir):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    arcname = os.path.relpath(file_path, os.path.join(drafts_dir, '..'))
+                    zip_file.write(file_path, arcname)
+        
+        zip_buffer.seek(0)
+        
+        return send_file(
+            zip_buffer,
+            as_attachment=True,
+            download_name=f'email_drafts_{session_id}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.zip',
+            mimetype='application/zip'
+        )
+    except Exception as e:
+        return jsonify({"error": f"Error creating zip file: {str(e)}"}), 500
 
 
 # if __name__ == '__main__':

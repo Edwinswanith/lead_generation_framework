@@ -38,9 +38,10 @@ def setup_logging(session_id: str) -> logging.Logger:
             handler.close()
             session_logger.removeHandler(handler)
 
-    log_dir = os.path.join(BASE_DIR, "files")
-    os.makedirs(log_dir, exist_ok=True)
-    log_file = os.path.join(log_dir, f"{session_id}.json")
+    # Create session directory
+    session_dir = os.path.join(BASE_DIR, "files", session_id)
+    os.makedirs(session_dir, exist_ok=True)
+    log_file = os.path.join(session_dir, "logs.json")
 
     fh = logging.FileHandler(log_file, mode='w')
     fh.setFormatter(JsonFormatter())
@@ -313,12 +314,14 @@ class CompanyInfoExtractorAgent(BaseAgent):
                 yield Event(author=self.name, content=types.Content(parts=[types.Part(text=f"❌ Missing column {col}")]))
                 return
 
-        output_path = Path.cwd() / CSV_OUTPUT
+        session_id = ctx.session.id
+        session_dir = os.path.join(BASE_DIR, "files", session_id)
+        output_path = os.path.join(session_dir, "companies.csv")
 
         for idx, row in df.iterrows():
-            stop_flag_path = os.path.join(BASE_DIR, 'files', f'{ctx.session.id}.stop')
+            stop_flag_path = os.path.join(session_dir, 'stop')
             if os.path.exists(stop_flag_path):
-                self.logger.info(f"Stop signal detected for session {ctx.session.id}. Stopping agent.", extra={'agent': self.name, 'task': 'stop_signal'})
+                self.logger.info(f"Stop signal detected for session {session_id}. Stopping agent.", extra={'agent': self.name, 'task': 'stop_signal'})
                 break
 
             company = str(row["Company Name"]).strip()
@@ -336,10 +339,6 @@ class CompanyInfoExtractorAgent(BaseAgent):
             for key, col_name in KEY_TO_COLUMN_MAP.items():
                 output_row[col_name] = str(result.get(key, "")) if result.get(key) is not None else ""
             
-            session_id = ctx.session.id
-            output_path = Path.cwd() / "files" / f"{session_id}.csv"
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-
             file_exists = os.path.exists(output_path)
 
             with open(output_path, 'a', newline='', encoding='utf-8') as f:
@@ -387,15 +386,10 @@ async def main(filepath: str, session_id: Optional[str] = None) -> None:
         )
 
     # Clear old files for this session before processing new one
-    file_folder = os.path.join(BASE_DIR, 'files')
-    logs_folder = os.path.join(BASE_DIR, 'files')
-    logs_path = os.path.join(logs_folder, f'{adk_session_id}.json')
-    companies_path = os.path.join(file_folder, f'{adk_session_id}.csv')
+    session_dir = os.path.join(BASE_DIR, 'files', adk_session_id)
+    os.makedirs(session_dir, exist_ok=True)
     
-    # Create logs directory if it doesn't exist
-    os.makedirs(logs_folder, exist_ok=True)
-    os.makedirs(file_folder, exist_ok=True)
-    
+    companies_path = os.path.join(session_dir, 'companies.csv')
     if os.path.exists(companies_path):
         os.remove(companies_path)
 
@@ -408,7 +402,7 @@ async def main(filepath: str, session_id: Optional[str] = None) -> None:
     
     logger.info("\n" + "="*50)
     logger.info("✅ Company data processing complete.")
-    logger.info(f"📄 Enriched data saved to: {CSV_OUTPUT}")
+    logger.info(f"📄 Enriched data saved to: {companies_path}")
     logger.info("="*50 + "\n")
 
 def run_agent_async(filepath: str, session_id: str):

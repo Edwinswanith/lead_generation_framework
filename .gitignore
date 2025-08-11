@@ -1,6 +1,7 @@
 .env
 lead/
 collaboration_reports/
+email_drafts/
 files/*.json
 files/*.csv
 __pycache__/
