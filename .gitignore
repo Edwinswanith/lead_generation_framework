@@ -1,9 +1,7 @@
 .env
 lead/
-collaboration_reports/
 email_drafts/
-files/*.json
-files/*.csv
+files/*/
 __pycache__/
 *.pyc
 *.pyo
