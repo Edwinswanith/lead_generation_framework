@@ -1,5 +1,5 @@
 .env
-env/
+lead/
 email_drafts/
 files/*/
 __pycache__/
