@@ -1,5 +1,11 @@
 document.addEventListener('DOMContentLoaded', function() {
-    const socket = io();
+    // Socket connection setup
+    const socket = io({
+        auth: {
+            session_id: sessionId
+        }
+    });
+
     const agentMonitoringContainer = document.getElementById('agent-monitoring-container');
     const companiesBody = document.getElementById('enriched-companies-body');
     const dataModalElement = document.getElementById('dataModal');
@@ -14,6 +20,47 @@ document.addEventListener('DOMContentLoaded', function() {
     const agentControls = document.getElementById('agent-controls');
     let timerInterval;
     let startTime;
+
+    // Initialize email modal
+    const emailModal = new bootstrap.Modal(document.getElementById('emailModal'));
+    let emailStatusList = null;
+
+    // Function to ensure email modal elements are ready
+    function initializeEmailModal() {
+        emailStatusList = document.getElementById('email-status-list');
+        if (!emailStatusList) {
+            console.warn('Email status list container not found');
+        }
+        return emailStatusList !== null;
+    }
+
+    // Function to update email status
+    function updateEmailStatus(status) {
+        if (!emailStatusList && !initializeEmailModal()) {
+            console.error('Could not initialize email status container');
+            return;
+        }
+
+        const statusHtml = `
+            <div class="alert ${status.success ? 'alert-success' : 'alert-danger'}">
+                <strong>${status.company_name}</strong><br>
+                ${status.message}
+            </div>
+        `;
+        emailStatusList.innerHTML = statusHtml + emailStatusList.innerHTML;
+    }
+
+    // Function to update email progress
+    function updateEmailProgress(progress) {
+        const progressBar = document.getElementById('email-progress-bar');
+        const progressText = document.getElementById('email-progress-text');
+        if (progressBar && progressText) {
+            const percentage = (progress.sent / progress.total) * 100;
+            progressBar.style.width = percentage + '%';
+            progressBar.setAttribute('aria-valuenow', percentage);
+            progressText.textContent = `${progress.sent}/${progress.total}`;
+        }
+    }
 
     function checkAgentStatus() {
         fetch('/status')
@@ -34,8 +81,82 @@ document.addEventListener('DOMContentLoaded', function() {
         checkAgentStatus();
     }
 
+    // Toast configuration for notifications
+    const Toast = Swal.mixin({
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 3000,
+        timerProgressBar: true,
+        didOpen: (toast) => {
+            toast.addEventListener('mouseenter', Swal.stopTimer)
+            toast.addEventListener('mouseleave', Swal.resumeTimer)
+        }
+    });
+
+    // Function to show loading state
+    function showLoading(message = 'Processing...') {
+        Swal.fire({
+            title: message,
+            allowOutsideClick: false,
+            allowEscapeKey: false,
+            showConfirmButton: false,
+            didOpen: () => {
+                Swal.showLoading();
+            }
+        });
+    }
+
+    // Function to show success message
+    function showSuccess(title, message) {
+        Toast.fire({
+            icon: 'success',
+            title: title,
+            text: message
+        });
+    }
+
+    // Function to show error message
+    function showError(title, message) {
+        Swal.fire({
+            icon: 'error',
+            title: title,
+            text: message,
+            confirmButtonText: 'OK'
+        });
+    }
+
+    // Function to show warning message
+    function showWarning(title, message) {
+        Toast.fire({
+            icon: 'warning',
+            title: title,
+            text: message
+        });
+    }
+
     socket.on('connect', function() {
         console.log('Connected to server');
+        Toast.fire({
+            icon: 'success',
+            title: 'Connected to server'
+        });
+    });
+
+    socket.on('disconnect', function() {
+        console.log('Disconnected from server');
+        Toast.fire({
+            icon: 'error',
+            title: 'Disconnected from server'
+        });
+    });
+
+    socket.on('connect_error', function() {
+        console.log('Connection error');
+        Toast.fire({
+            icon: 'error',
+            title: 'Connection error'
+        });
     });
 
     socket.on('logs_update', function(data) {
@@ -175,7 +296,7 @@ document.addEventListener('DOMContentLoaded', function() {
         companiesBody.innerHTML = '';
         data.forEach(company => {
             const row = document.createElement('tr');
-            row.onclick = () => showCompanyDetails(company);
+            row.onclick = () => showCompanyDetails(row);
             row.innerHTML = `
                 <td class="fw-bold text-truncate">${company['Company Name']}</td>
                 <td class="text-truncate"><a href="${company['Website']}" class="text-decoration-none" target="_blank">${company['Website']}</a></td>
@@ -196,27 +317,58 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    function showCompanyDetails(company) {
-        const modalContent = document.getElementById('modalContent');
-        if (!modalContent) return;
+    // Remove the old showModal function and replace with enhanced company details view
+    function showCompanyDetails(row) {
+        const cells = row.getElementsByTagName('td');
+        const companyData = {
+            'Company Name': cells[0].textContent,
+            'Website': cells[1].textContent,
+            'CEO Name': cells[2].textContent,
+            'CEO Email': cells[3].textContent,
+            'Company Revenue': cells[4].textContent,
+            'Company Employee Count': cells[5].textContent,
+            'Company Founding Year': cells[6].textContent,
+            'Target Industries': cells[7].textContent,
+            'Target Company Size': cells[8].textContent,
+            'Target Geography': cells[9].textContent,
+            'Client Examples': cells[10].textContent,
+            'Service Focus': cells[11].textContent,
+            'Ranking': cells[12].textContent,
+            'Reasoning': cells[13].textContent
+        };
 
-        let content = '<div class="container">';
-        
-        for (const [key, value] of Object.entries(company)) {
-            content += `
-                <div class="row mb-3">
-                    <div class="col-4 fw-bold">${key}</div>
-                    <div class="col-8">${value}</div>
+        Swal.fire({
+            title: `<strong>${companyData['Company Name']}</strong>`,
+            html: `
+                <div class="table-responsive">
+                    <table class="table table-bordered table-striped">
+                        <tbody>
+                            ${Object.entries(companyData).map(([key, value]) => `
+                                <tr>
+                                    <th class="text-start bg-light" style="width: 30%;">${key}</th>
+                                    <td class="text-start">${value || 'N/A'}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
                 </div>
-                <hr class="my-3">
-            `;
-        }
-        
-        content += '</div>';
-        modalContent.innerHTML = content;
-        const modalLabel = document.getElementById('dataModalLabel');
-        if(modalLabel) modalLabel.textContent = company['Company Name'];
-        if (dataModal) dataModal.show();
+            `,
+            width: '800px',
+            showCloseButton: true,
+            showConfirmButton: false,
+            showClass: {
+                popup: 'animate__animated animate__fadeIn animate__faster'
+            },
+            hideClass: {
+                popup: 'animate__animated animate__fadeOut animate__faster'
+            },
+            customClass: {
+                container: 'company-details-modal',
+                popup: 'rounded-4 shadow-lg',
+                header: 'border-bottom pb-3',
+                closeButton: 'btn btn-sm btn-light'
+            }
+        });
     }
 
     function stopTimer() {
@@ -238,15 +390,39 @@ document.addEventListener('DOMContentLoaded', function() {
         if (agentControls) agentControls.style.display = 'block'; 
     }
 
+    // Modify window.startAgent
     window.startAgent = function() {
         const fileInput = document.getElementById('fileInput');
         if (!fileInput) return;
         const file = fileInput.files[0];
 
         if (!file) {
-            alert('Please select a file to upload.');
+            showWarning('No File Selected', 'Please select a file to upload.');
             return;
         }
+
+        // Show file validation dialog
+        Swal.fire({
+            title: 'Start Processing?',
+            html: `
+                <div class="text-start">
+                    <p><strong>File Details:</strong></p>
+                    <ul>
+                        <li>Name: ${file.name}</li>
+                        <li>Size: ${(file.size / 1024).toFixed(2)} KB</li>
+                        <li>Type: ${file.type || 'Unknown'}</li>
+                    </ul>
+                </div>
+            `,
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonText: 'Start Processing',
+            cancelButtonText: 'Cancel',
+            confirmButtonColor: '#3085d6',
+            cancelButtonColor: '#d33'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                showLoading('Initializing agent...');
 
         const resultsSection = document.getElementById('results-section');
         if (resultsSection) resultsSection.style.display = 'block';
@@ -256,18 +432,16 @@ document.addEventListener('DOMContentLoaded', function() {
             startButton.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Processing...';
         }
         if (agentControls) agentControls.style.display = 'block';
-        if (stopButton) stopButton.disabled = false;
         if (clearButton) clearButton.disabled = true;
 
-        const emailActionsGroup = document.getElementById('email-actions-group');
-        if (emailActionsGroup) emailActionsGroup.style.display = 'none';
-
+                // Reset UI elements
         if (agentMonitoringContainer) agentMonitoringContainer.innerHTML = '';
         if (companiesBody) companiesBody.innerHTML = '';
         const totalCostEl = document.getElementById('total-cost');
         if (totalCostEl) totalCostEl.textContent = '$0.00';
         updateProgress({ processed: 0, total: 0 });
 
+                // Start timer
         const timerContainer = document.getElementById('timer-container');
         const timerElement = document.getElementById('timer');
         if (timerContainer) timerContainer.style.display = 'block';
@@ -291,28 +465,34 @@ document.addEventListener('DOMContentLoaded', function() {
         })
         .then(response => response.json())
         .then(data => {
+                    Swal.close();
             if (data.error) {
-                console.error('Error:', data.error);
-                alert('An error occurred: ' + data.error);
+                        showError('Error', data.error);
                 stopTimer();
             } else {
-                console.log(data.message);
+                        showSuccess('Success', 'Agent process started successfully');
                 if (startButton) startButton.disabled = true;
                 if (agentControls) agentControls.style.display = 'block';
             }
         })
         .catch(error => {
             console.error('Error:', error);
+                    showError('Error', 'Failed to start the agent process');
             stopTimer();
         });
     }
+        });
+    };
 
+    // Modify window.downloadEnrichedData
     window.downloadEnrichedData = function() {
+        showLoading('Preparing download...');
         fetch('/download_file')
             .then(response => {
+                Swal.close();
                 if (response.status === 202) {
                     return response.json().then(data => {
-                        alert(data.error);
+                        showWarning('Please Wait', data.error);
                         return null;
                     });
                 }
@@ -331,12 +511,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 a.click();
                 window.URL.revokeObjectURL(url);
                 document.body.removeChild(a);
+                showSuccess('Success', 'Download started successfully');
             })
             .catch(error => {
                 console.error('Error downloading file:', error);
-                alert('Error downloading file. Please try again.');
+                showError('Download Failed', 'Unable to download the file. Please try again.');
             });
-    }
+    };
 
     window.stopAgent = function() {
         if (stopButton) stopButton.disabled = true;
@@ -357,13 +538,30 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     };
 
+    // Modify window.clearData
     window.clearData = function() {
+        Swal.fire({
+            title: 'Clear All Data?',
+            text: 'This will remove all processed data and reset the system. This action cannot be undone.',
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonText: 'Yes, clear it!',
+            cancelButtonText: 'No, keep it',
+            confirmButtonColor: '#d33',
+            cancelButtonColor: '#3085d6'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                showLoading('Clearing data...');
         fetch('/clear-data', {
             method: 'POST'
         })
         .then(response => response.json())
         .then(data => {
-            console.log(data.message);
+                    Swal.close();
+                    if (data.error) {
+                        showError('Error', data.error);
+                    } else {
+                        showSuccess('Success', 'All data has been cleared');
             if (agentMonitoringContainer) agentMonitoringContainer.innerHTML = '';
             if (companiesBody) companiesBody.innerHTML = '';
             const totalCostEl = document.getElementById('total-cost');
@@ -371,107 +569,116 @@ document.addEventListener('DOMContentLoaded', function() {
             updateProgress({ processed: 0, total: 0 });
             const resultsSection = document.getElementById('results-section');
             if (resultsSection) resultsSection.style.display = 'none';
-            
-            const emailActionsGroup = document.getElementById('email-actions-group');
-            if (emailActionsGroup) emailActionsGroup.style.display = 'none';
+                        
+                        const emailActionsGroup = document.getElementById('email-actions-group');
+                        if (emailActionsGroup) emailActionsGroup.style.display = 'none';
             
             if (startButton) {
                 startButton.disabled = false;
                 startButton.innerHTML = '<i class="fas fa-play-circle me-2"></i>Launch Agent';
             }
             if (agentControls) agentControls.style.display = 'none';
-        })
-        .catch(error => {
-            console.error('Error:', error);
-            alert('An error occurred while clearing data.');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    showError('Error', 'Failed to clear data');
+                });
+            }
         });
     };
 
+    // Make sendBulkEmails globally accessible
     window.sendBulkEmails = function(mode) {
-        const emailModal = new bootstrap.Modal(document.getElementById('emailModal'));
-        emailModal.show();
-        
-        const emailStatusList = document.getElementById('email-status-list');
-        const emailProgressBar = document.getElementById('email-progress-bar');
-        const emailProgressText = document.getElementById('email-progress-text');
-        
-        // Clear previous status
-        if (emailStatusList) emailStatusList.innerHTML = '';
-        if (emailProgressBar) {
-            emailProgressBar.style.width = '0%';
-            emailProgressBar.classList.add('progress-bar-animated');
-            emailProgressBar.classList.remove('bg-success', 'bg-danger');
-        }
-        
-        fetch('/send-bulk-emails', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ mode: mode })
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.error) {
-                alert('Error: ' + data.error);
-                emailModal.hide();
-            }
+        Swal.fire({
+            title: 'Send Emails',
+            text: 'Do you want to send emails now?',
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonText: 'Yes, send emails',
+            cancelButtonText: 'No, cancel',
+            confirmButtonColor: '#3085d6',
+            cancelButtonColor: '#d33'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                // User confirmed, show the progress modal
+                emailModal.show();
+                
+                // Initialize modal elements
+                initializeEmailModal();
+                
+                // Clear previous status messages
+                if (emailStatusList) {
+                    emailStatusList.innerHTML = '';
+                }
+                
+                // Reset progress bar
+                const progressBar = document.getElementById('email-progress-bar');
+                const progressText = document.getElementById('email-progress-text');
+                if (progressBar && progressText) {
+                    progressBar.style.width = '0%';
+                    progressBar.setAttribute('aria-valuenow', 0);
+                    progressText.textContent = '0/0';
+                }
+
+                // Start the email process
+                fetch('/send-bulk-emails', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ mode: mode })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        Swal.fire({
+                            title: 'Error',
+                            text: data.error,
+                            icon: 'error'
+                        });
+                        emailModal.hide();
+                    }
         })
         .catch(error => {
             console.error('Error:', error);
-            alert('An error occurred while sending emails.');
-            emailModal.hide();
+                    Swal.fire({
+                        title: 'Error',
+                        text: 'Error starting email process',
+                        icon: 'error'
+                    });
+                    emailModal.hide();
+                });
+            }
         });
     };
-    
-    // Socket event for email progress updates
+
+    // Socket event handlers
     socket.on('email_progress', function(data) {
-        const emailStatusList = document.getElementById('email-status-list');
-        const emailProgressBar = document.getElementById('email-progress-bar');
-        const emailProgressText = document.getElementById('email-progress-text');
-        
-        if (data.status) {
-            // Add status item
-            if (emailStatusList) {
-                const statusItem = document.createElement('div');
-                statusItem.className = `alert ${data.status.success ? 'alert-success' : 'alert-danger'} py-2`;
-                
-                statusItem.innerHTML = `
-                    <div class="d-flex justify-content-between align-items-center">
-                        <div>
-                            <strong>${data.status.company_name}</strong> - ${data.status.email || 'No email'}
-                        </div>
-                        <div>
-                            ${data.status.success ? '<i class="fas fa-check-circle text-success"></i>' : '<i class="fas fa-times-circle text-danger"></i>'}
-                        </div>
-                    </div>
-                    <small>${data.status.message}</small>
-                `;
-                emailStatusList.appendChild(statusItem);
-                emailStatusList.scrollTop = emailStatusList.scrollHeight;
-            }
+        if (data.progress) {
+            updateEmailProgress(data.progress);
         }
         
-        if (data.progress) {
-            const percentage = (data.progress.sent / data.progress.total) * 100;
-            if (emailProgressBar) {
-                emailProgressBar.style.width = percentage + '%';
-                emailProgressBar.setAttribute('aria-valuenow', percentage);
-            }
-            if (emailProgressText) {
-                emailProgressText.textContent = `${data.progress.sent} / ${data.progress.total}`;
-            }
+        if (data.status) {
+            updateEmailStatus(data.status);
             
-            // If complete
-            if (data.progress.sent === data.progress.total) {
-                if (emailProgressBar) {
-                    emailProgressBar.classList.remove('progress-bar-animated');
-                    emailProgressBar.classList.add('bg-success');
-                }
-                if (emailProgressText) {
-                    emailProgressText.textContent += " - Complete!";
-                }
+            // If it's the final status message
+            if (data.status.company_name === 'System' && data.status.summary_file) {
+                Swal.fire({
+                    title: 'Process Complete',
+                    text: data.status.message,
+                    icon: 'success',
+                    confirmButtonText: 'OK'
+                });
             }
+        }
+    });
+
+    // Update the click handler
+    document.addEventListener('click', function(e) {
+        const target = e.target.closest('tr');
+        if (target && target.closest('#enriched-companies-body')) {
+            showCompanyDetails(target);
         }
     });
 });

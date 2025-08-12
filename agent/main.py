@@ -338,7 +338,7 @@ class CompanyInfoExtractorAgent(BaseAgent):
             }
             for key, col_name in KEY_TO_COLUMN_MAP.items():
                 output_row[col_name] = str(result.get(key, "")) if result.get(key) is not None else ""
-            
+
             file_exists = os.path.exists(output_path)
 
             with open(output_path, 'a', newline='', encoding='utf-8') as f:

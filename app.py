@@ -18,6 +18,7 @@ real_threading = original('threading')
 load_dotenv()
 import re
 from emails import send_emails_task
+import asyncio
 
 app = Flask(__name__)
 socketio = SocketIO(app, async_mode='eventlet', cors_allowed_origins="*")
@@ -353,9 +354,48 @@ def send_bulk_emails():
     companies_path = os.path.join(BASE_DIR, 'files', session_id, 'companies.csv')
     if not os.path.exists(companies_path):
         return jsonify({"error": "No companies data found"}), 404
-    
-    # Pass socketio and app objects to the background task
-    socketio.start_background_task(send_emails_task, session_id, companies_path, mode, socketio, app)
+
+    def run_email_task():
+        try:
+            # Create a new event loop in this thread
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            # Run the email task
+            loop.run_until_complete(send_emails_task(session_id, companies_path, mode, socketio, app))
+            
+        except Exception as e:
+            print(f"Error in email task: {e}")
+            socketio.emit('email_progress', {
+                'status': {
+                    'success': False,
+                    'message': f'Error in email task: {str(e)}',
+                    'company_name': 'System'
+                }
+            }, room=session_id)
+        finally:
+            try:
+                # Clean up any pending tasks
+                pending = asyncio.all_tasks(loop)
+                for task in pending:
+                    task.cancel()
+                
+                # Allow cancelled tasks to complete
+                if pending:
+                    loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+                
+                # Stop and close the event loop
+                loop.stop()
+                loop.close()
+                
+                # Remove the loop from the current thread
+                asyncio.set_event_loop(None)
+                
+            except Exception as e:
+                print(f"Error during cleanup: {e}")
+
+    # Start the email task in the background
+    socketio.start_background_task(run_email_task)
     
     return jsonify({"message": f"Email {mode} process started"})
 
