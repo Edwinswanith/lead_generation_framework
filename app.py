@@ -17,7 +17,7 @@ from eventlet.patcher import original
 real_threading = original('threading')
 load_dotenv()
 import re
-from emails import send_emails_task
+from utility.emails import send_emails_task
 import asyncio
 
 app = Flask(__name__)
@@ -351,9 +351,19 @@ def send_bulk_emails():
     data = request.get_json()
     mode = data.get('mode', 'draft') if data else 'draft'
     
+    # Validate mode
+    if mode not in ['draft', 'send', 'follow-up']:
+        return jsonify({"error": "Invalid mode specified"}), 400
+    
     companies_path = os.path.join(BASE_DIR, 'files', session_id, 'companies.csv')
     if not os.path.exists(companies_path):
         return jsonify({"error": "No companies data found"}), 404
+
+    # For follow-up mode, check if summary file exists
+    if mode == 'follow-up':
+        summary_path = os.path.join(BASE_DIR, 'files', session_id, 'email_summary.csv')
+        if not os.path.exists(summary_path):
+            return jsonify({"error": "No previous emails found. Send initial emails first."}), 404
 
     def run_email_task():
         try:
@@ -363,6 +373,14 @@ def send_bulk_emails():
             
             # Run the email task
             loop.run_until_complete(send_emails_task(session_id, companies_path, mode, socketio, app))
+
+            # Give the loop a moment to process any pending callbacks from client cleanup
+            try:
+                loop.run_until_complete(asyncio.sleep(0))
+                # Shutdown async generators cleanly
+                loop.run_until_complete(loop.shutdown_asyncgens())
+            except Exception:
+                pass
             
         except Exception as e:
             print(f"Error in email task: {e}")
@@ -375,29 +393,21 @@ def send_bulk_emails():
             }, room=session_id)
         finally:
             try:
-                # Clean up any pending tasks
-                pending = asyncio.all_tasks(loop)
-                for task in pending:
-                    task.cancel()
-                
-                # Allow cancelled tasks to complete
-                if pending:
-                    loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
-                
-                # Stop and close the event loop
-                loop.stop()
+                # Close the event loop safely
+                try:
+                    loop.run_until_complete(asyncio.sleep(0))
+                except Exception:
+                    pass
                 loop.close()
-                
-                # Remove the loop from the current thread
                 asyncio.set_event_loop(None)
-                
             except Exception as e:
                 print(f"Error during cleanup: {e}")
 
     # Start the email task in the background
     socketio.start_background_task(run_email_task)
     
-    return jsonify({"message": f"Email {mode} process started"})
+    action = "follow-up" if mode == "follow-up" else "draft" if mode == "draft" else "send"
+    return jsonify({"message": f"Email {action} process started"})
 
 
 @app.route('/download-email-drafts', methods=['POST'])

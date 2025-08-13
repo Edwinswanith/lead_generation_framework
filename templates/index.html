@@ -150,7 +150,12 @@
             <div class="modal-content shadow-lg rounded-4">
                 <div class="modal-header rounded-top-4">
                     <h5 class="modal-title" id="emailModalLabel"><i class="fas fa-paper-plane me-2"></i>Sending Emails</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    <div class="d-flex align-items-center">
+                        <button type="button" class="btn btn-info me-2" onclick="sendBulkEmails('follow-up')">
+                            <i class="fas fa-reply me-2"></i>Send Follow-Up
+                        </button>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
                 </div>
                 <div class="modal-body">
                     <div id="email-progress-container" class="mb-3">

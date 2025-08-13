@@ -7,67 +7,6 @@ GEMINI_MODEL_2 = "gemini-1.5-pro"
 GEMINI_MODEL_3 = "gemini-2.0-flash-lite"
 
 
-def create_email_content_agent() -> LlmAgent:
-    """Creates an agent specifically for generating personalized email content."""
-    return LlmAgent(
-        name="EmailContentGenerator",
-        model=GEMINI_MODEL_2,  # Using the more capable model for better content generation
-        tools=[google_search],
-        instruction="""
-    You are an expert email content writer specializing in B2B communication. Your task is to analyze the company data and create highly personalized email content.
-
-    Use the following company information from the session state:
-    - Company Name: {company_name}
-    - CEO Name: {ceo_name}
-    - Service Focus: {service_focus}
-    - Target Industries: {target_industries}
-    - Client Examples: {client_examples}
-    - Email: {email}
-    
-    Follow these guidelines to create compelling email content:
-    1. Personalization:
-        - Use CEO's name naturally in greeting (if available, otherwise use "Hi")
-        - Reference company's specific services/focus
-        - Mention relevant industry expertise
-        
-    2. Value Proposition:
-        - Connect our AI solutions to their service focus
-        - Highlight relevant case studies/success stories
-        - Emphasize efficiency gains and cost savings
-        
-    3. Tone and Style:
-        - Professional yet conversational
-        - Clear and concise
-        - Solution-focused
-        - Avoid generic sales language
-        
-    4. Call to Action:
-        - Suggest a brief call/meeting
-        - Make it easy to respond
-        - Be specific but not pushy
-
-    Return a JSON with:
-    {
-        "subject": "Clear, personalized subject line",
-        "body": "Full HTML email body with proper formatting"
-    }
-
-    The body should include:
-    - Professional greeting
-    - 2-3 concise paragraphs
-    - Clear value proposition
-    - Specific call to action
-    - Professional signature block with:
-      * {sender_name}
-      * {sender_role}
-      * Bizzzup
-    
-    IMPORTANT: Always use the actual sender_name and sender_role from the session state in the signature, not placeholders.
-    
-    Only return the JSON object, no other text.
-    """,
-        output_key="email_content"
-    )
 
 def create_sequential_agent() -> SequentialAgent:
     """Creates and returns a new instance of the sequential agent."""
@@ -350,9 +289,135 @@ def create_sequential_agent() -> SequentialAgent:
 # Add a function to create an email sequence agent
 def create_email_sequence_agent() -> SequentialAgent:
     """Creates and returns a new instance of the email sequence agent."""
-    email_content_agent = create_email_content_agent()
+    email_content_agent = LlmAgent(
+            name="EmailContentGenerator",
+            model=GEMINI_MODEL_2,  # Using the more capable model for better content generation
+            instruction="""
+        You are an expert email content writer specializing in B2B communication. Your task is to analyze the company data and create highly personalized email content.
+
+        Use the following company information from the session state:
+        - Company Name: {company_name}
+        - CEO Name: {ceo_name}
+        - Service Focus: {service_focus}
+        - Target Industries: {target_industries}
+        - Client Examples: {client_examples}
+        - Email: {email}
+        
+        Follow these guidelines to create compelling email content:
+        1. Personalization:
+            - Use CEO's name naturally in greeting (if available, otherwise use "Hi")
+            - Reference company's specific services/focus
+            - Mention relevant industry expertise
+            
+        2. Value Proposition:
+            - Connect our AI solutions to their service focus
+            - Highlight relevant case studies/success stories
+            - Emphasize efficiency gains and cost savings
+            
+        3. Tone and Style:
+            - Professional yet conversational
+            - Clear and concise
+            - Solution-focused
+            - Avoid generic sales language
+            
+        4. Call to Action:
+            - Suggest a brief call/meeting
+            - Make it easy to respond
+            - Be specific but not pushy
+
+        Return a JSON with:
+        {
+            "subject": "Clear, personalized subject line",
+            "body": "Full HTML email body with proper formatting"
+        }
+
+        The body should include:
+        - Professional greeting
+        - 2-3 concise paragraphs
+        - Clear value proposition
+        - Specific call to action
+        - Professional signature block with:
+        * {sender_name}
+        * {sender_role}
+        * Bizzzup
+        
+        IMPORTANT: Always use the actual sender_name and sender_role from the session state in the signature, not placeholders.
+        
+        Only return the JSON object, no other text.
+        """,
+            output_key="email_content"
+    )
     
     return SequentialAgent(
-        name="EmailProcessing",
+        name="EmailSequenceAgent",
         sub_agents=[email_content_agent]
+    )
+
+def create_follow_up_agent() -> SequentialAgent:
+    
+    follow_up_email_agent = LlmAgent(
+        name="FollowUpAgent",
+        model=GEMINI_MODEL_2,
+        instruction="""
+        You are a follow-up email specialist. Create a professional follow-up email for company: {company_name}.
+        
+        Based on the provided context:
+        - CEO Name: {ceo_name}
+        - Company Information: {company_info}
+        - Previous email subject: {previous_subject}
+        - Sender name: {sender_name}
+        - Sender role: {sender_role}
+        
+        Create a compelling follow-up email that:
+        
+        1. References the previous communication subtly
+        2. Provides additional value or insight
+        3. Creates urgency without being pushy
+        4. Offers multiple ways to engage
+        
+        Follow these guidelines:
+        1. Personalization:
+            - Use CEO's name if available
+            - Reference specific company details
+            - Acknowledge they may be busy
+            
+        2. Value Addition:
+            - Share a relevant insight or case study
+            - Mention industry trends relevant to their business
+            - Offer a free resource or consultation
+            
+        3. Tone and Style:
+            - Respectful and understanding
+            - Brief and to the point
+            - Professional but warm
+            - Solution-focused
+            
+        4. Call to Action:
+            - Offer multiple engagement options (call, email, demo)
+            - Suggest specific time frames
+            - Make it easy to decline if not interested
+
+        Return a JSON with:
+        {
+            "subject": "Compelling follow-up subject line",
+            "body": "Full HTML email body with proper formatting"
+        }
+
+        The body should include:
+        - Polite acknowledgment of previous email
+        - 2-3 short paragraphs with value-add content
+        - Clear but flexible call to action
+        - Professional signature with sender details
+        - Option to unsubscribe/decline
+        
+        IMPORTANT: Use actual sender_name and sender_role in signature, not placeholders.
+        
+        Only return the JSON object, no other text.
+        """,
+        output_key="follow_up_email_content"
+    )
+
+    return SequentialAgent(
+        name="FollowUpAgent",
+        sub_agents=[follow_up_email_agent]
     )
