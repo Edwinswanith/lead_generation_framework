@@ -16,8 +16,97 @@ from google.adk.sessions import InMemorySessionService
 from agent.sub_agents.agent import create_email_sequence_agent, create_follow_up_agent
 from agent.sub_agents.tools.perplexity_tool import extract_json_object
 
+# MCP imports for Gmail draft functionality
+from mcp.client.session import ClientSession
+from mcp.client.streamable_http import streamablehttp_client
+
 APP_NAME = "email_content_app"
 USER_ID = "email_user"
+
+# MCP server configuration
+MCP_SERVER_URL = "https://mcp.zapier.com/api/mcp/s/YTI2MDQwYWItZjBjNi00OWEyLTg1MDktOGM5YTdiODk3NTE1Ojc2ZTc1MzI4LWI3ZjctNDA5MC04YjYyLTEwNzlhZTg3YWYzYw==/mcp"
+# MCP_SERVER_URL = "https://mcp.zapier.com/api/mcp/s/M2RkZDgyMDUtN2U1Yy00MDM3LTljM2MtZDI2N2ViOWQxYjM4OjcxNGEyYTRkLWM4NTEtNGRiZS05YjRmLTcxNmU3NTAxOTRhOQ==/mcp"
+
+
+
+def _save_email_content_json(session_dir: str, email: str, subject: str, body: str) -> None:
+    """Persist email subject/body keyed by recipient email in a JSON file under the session directory."""
+    try:
+        os.makedirs(session_dir, exist_ok=True)
+        json_path = os.path.join(session_dir, 'email_contents.json')
+        data = {}
+        if os.path.exists(json_path):
+            try:
+                with open(json_path, 'r') as f:
+                    data = json.load(f) or {}
+            except Exception:
+                data = {}
+        data[email] = {
+            'subject': subject,
+            'body': body,
+            'saved_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+        with open(json_path, 'w') as f:
+            json.dump(data, f, indent=2)
+    except Exception as e:
+        print(f"Failed to save email content JSON for {email}: {e}")
+
+
+async def create_gmail_draft_via_mcp(to_email: str, subject: str, body: str) -> dict:
+    """Create a Gmail draft using MCP (Model Context Protocol)."""
+    try:
+        # Use streamablehttp_client to get streams for MCP communication
+        async with streamablehttp_client(MCP_SERVER_URL) as (read_stream, write_stream, get_session_id):
+            # Initialize the client session with the streams
+            async with ClientSession(read_stream, write_stream) as client:
+                print(f"MCP Client connected successfully")
+                
+                # Initialize the session
+                await client.initialize()
+                
+                # List available tools first (optional, for debugging)
+                try:
+                    tools_result = await client.list_tools()
+                    available_tools = [tool.name for tool in tools_result.tools]
+                    print(f"Available tools: {available_tools}")
+                except Exception as e:
+                    print(f"Warning: Could not list tools: {e}")
+                
+                # Call gmail_create_draft tool with parameters
+                result = await client.call_tool(
+                    "gmail_create_draft",
+                    {
+                        "instructions": "Execute the Gmail: Create Draft tool with the following parameters",
+                        "body": body,
+                        "subject": subject,
+                        "to": to_email
+                    }
+                )
+                
+                # Parse the result
+                if result and result.content:
+                    # Extract text content from the result
+                    content_text = ""
+                    for content in result.content:
+                        if hasattr(content, 'text'):
+                            content_text += content.text
+                    
+                    if content_text:
+                        try:
+                            json_result = json.loads(content_text)
+                            # print(f"Gmail draft created successfully: {json_result}")
+                            return {"success": True, "result": json_result}
+                        except json.JSONDecodeError:
+                            print(f"Non-JSON response: {content_text}")
+                            return {"success": True, "result": content_text}
+                    else:
+                        return {"success": False, "error": "Empty content in result"}
+                else:
+                    return {"success": False, "error": "No result returned from MCP"}
+                
+    except Exception as e:
+        print(f"Error creating Gmail draft via MCP: {e}")
+        return {"success": False, "error": str(e)}
 
 def is_missing_timestamp(value) -> bool:
     return pd.isna(value) or (isinstance(value, str) and value.strip() == '')
@@ -143,11 +232,18 @@ async def generate_email_content(company_data: dict) -> tuple[str, str]:
                     if not loop.is_closed():
                         try:
                             await runner._client.aclose()
+                            # Give the loop a moment to process transport close callbacks
+                            await asyncio.sleep(0)
                         except RuntimeError as e:
                             if 'Event loop is closed' in str(e):
                                 pass
                             else:
                                 raise
+                    # Prevent any destructor from attempting to close again on a closed loop
+                    try:
+                        runner._client = None
+                    except Exception:
+                        pass
             except Exception as e:
                 print(f"Error closing runner client: {e}")
             
@@ -214,18 +310,38 @@ async def generate_follow_up_content(company_data: dict, previous_subject: str) 
         except Exception as e:
             print(f"Error in follow-up agent: {e}")
             return None, None
-
+        finally:
+            # Clean up the runner and its resources (mirror generate_email_content)
+            try:
+                if hasattr(runner, '_client') and runner._client is not None:
+                    loop = asyncio.get_running_loop()
+                    if not loop.is_closed():
+                        try:
+                            await runner._client.aclose()
+                            # Give the loop a moment to flush transport close callbacks
+                            await asyncio.sleep(0)
+                        except RuntimeError as e:
+                            if 'Event loop is closed' in str(e):
+                                pass
+                            else:
+                                raise
+                    # Prevent any destructor from attempting to close again on a closed loop
+                    try:
+                        runner._client = None
+                    except Exception:
+                        pass
+            except Exception as e:
+                print(f"Error closing runner client (follow-up): {e}")
+        
     except Exception as e:
         print(f"Error generating follow-up email content: {e}")
         return None, None
 
-async def send_emails_task(session_id: str, companies_path: str, mode: str, socketio, app):
+async def send_emails_task(session_id: str, companies_path: str, mode: str, socketio, app, rank_min=None, rank_max=None, selected_emails=None):
     """Background task to send emails."""
     
     try:
         load_dotenv()
-        sender_email = os.getenv("SENDER_EMAIL", "sender@bizzzup.com")
-        sender_password = os.getenv("SENDER_PASSWORD")
         sender_name = os.getenv("SENDER_NAME", "Bizzzup Team")
         sender_role = os.getenv("SENDER_ROLE", "Business Development & Strategic Partnerships")
 
@@ -245,6 +361,25 @@ async def send_emails_task(session_id: str, companies_path: str, mode: str, sock
         # Read the companies CSV file
         try:
             df = pd.read_csv(companies_path)
+            
+            # If explicit selections exist, filter by them and ignore ranking
+            if selected_emails and isinstance(selected_emails, list) and len(selected_emails) > 0:
+                lower_set = set([str(e).strip().lower() for e in selected_emails])
+                email_col_candidates = ['CEO Email', 'Email']
+                email_col = next((c for c in email_col_candidates if c in df.columns), None)
+                if email_col:
+                    df = df[df[email_col].astype(str).str.strip().str.lower().isin(lower_set)]
+            else:
+                # Apply ranking filter if provided
+                if rank_min is not None or rank_max is not None:
+                    if 'Ranking' in df.columns:
+                        ranking_series = pd.to_numeric(df['Ranking'], errors='coerce')
+                    else:
+                        ranking_series = pd.Series([None] * len(df), index=df.index, dtype=float)
+                    _min = float('-inf') if rank_min is None else rank_min
+                    _max = float('inf') if rank_max is None else rank_max
+                    mask = (ranking_series >= _min) & (ranking_series <= _max)
+                    df = df[mask]
         except Exception as e:
             socketio.emit('email_progress', {
                 'status': {
@@ -268,16 +403,6 @@ async def send_emails_task(session_id: str, companies_path: str, mode: str, sock
             return
 
         email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-
-        if mode in ['send', 'follow-up'] and (not sender_email or not sender_password):
-            socketio.emit('email_progress', {
-                'status': {
-                    'success': False,
-                    'message': 'Email credentials not configured in environment',
-                    'company_name': 'System'
-                }
-            }, room=session_id)
-            return
 
         # Read the email summary file
         summary_df = pd.read_csv(summary_path) if os.path.exists(summary_path) else pd.DataFrame(columns=['Company Name', 'Email', 'CEO Name', 'Subject', '1st Email Sent', '2nd Email Sent', '3rd Email Sent'])
@@ -435,26 +560,32 @@ async def send_emails_task(session_id: str, companies_path: str, mode: str, sock
                     }, room=session_id)
                     continue
 
-                # Create email message
-                msg = MIMEMultipart('alternative')
-                msg['Subject'] = subject
-                msg['From'] = f"{sender_name} <{sender_email}>"
-                msg['To'] = company_data['email']
-                msg.attach(MIMEText(body, 'html'))
-
                 status_msg = 'Email prepared'
 
-                # If mode is 'send' or 'follow-up', send the email
-                if mode in ['send', 'follow-up']:
+                # Use MCP to create Gmail drafts instead of SMTP sending
+                if mode in ['draft', 'send', 'follow-up']:
                     try:
-                        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
-                            server.login(sender_email, sender_password)
-                            server.send_message(msg)
+                        # Create Gmail draft using MCP
+                        draft_result = await create_gmail_draft_via_mcp(
+                            to_email=company_data['email'],
+                            subject=subject,
+                            body=body
+                        )
+                        
+                        if draft_result['success']:
                             sent_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                            status_msg = 'Email sent successfully'
+                            # Persist subject/body for later viewing
+                            _save_email_content_json(session_dir, company_data['email'], subject, body)
+                            if mode == 'draft':
+                                status_msg = 'Gmail draft created successfully via MCP'
+                            elif mode in ['send', 'follow-up']:
+                                status_msg = 'Gmail draft created successfully via MCP (ready to send)'
+                        else:
+                            status_msg = f'Failed to create Gmail draft: {draft_result.get("error", "Unknown error")}'
+                            
                     except Exception as e:
-                        print(f"SMTP Error: {str(e)}")
-                        status_msg = f'Failed to send email: {str(e)}'
+                        print(f"MCP Error: {str(e)}")
+                        status_msg = f'Failed to create Gmail draft: {str(e)}'
 
                 # Update summary CSV
                 if is_follow_up and email_number > 1:

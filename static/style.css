@@ -370,3 +370,32 @@ body {
 #email-actions-group .dropdown-item i {
     width: 20px;
 }
+
+/* Ranking Sort Header Styling */
+.ranking-sort-header {
+    transition: all 0.3s ease;
+    padding: 4px 8px;
+    border-radius: 6px;
+    display: inline-block;
+}
+
+.ranking-sort-header:hover {
+    background-color: rgba(255, 255, 255, 0.2);
+    transform: scale(1.05);
+    color: #ffffff;
+}
+
+.ranking-sort-header:active {
+    transform: scale(0.98);
+    background-color: rgba(255, 255, 255, 0.3);
+}
+
+#ranking-sort-icon {
+    transition: all 0.3s ease;
+    opacity: 0.7;
+}
+
+.ranking-sort-header:hover #ranking-sort-icon {
+    opacity: 1;
+    transform: scale(1.1);
+}

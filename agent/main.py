@@ -18,7 +18,7 @@ import re
 import logging
 import csv
 from .monitoring import create_log_entry, count_tokens
-from .sub_agents.tools.perplexity_tool import perplexity_research_tool
+from .sub_agents.tools.perplexity_tool import perplexity_research_tool, get_specific_info_tool
 
 # ──────────────────────────── ENV / LOGGING ──────────────────────────────
 load_dotenv()
@@ -64,6 +64,17 @@ class JsonFormatter(logging.Formatter):
             log_record["message"] = record.getMessage()
         
         return json.dumps(log_record)
+
+# Simple validator to filter out generic inboxes; returns True if email is generic/invalid
+def is_generic_email(email: str) -> bool:
+    if not email or '@' not in email:
+        return True
+    local_part = email.split('@', 1)[0].strip().lower()
+    generic_prefixes = {
+        'info', 'contact', 'sales', 'support', 'hello', 'help',
+        'marketing', 'admin', 'enquiry', 'enquiries', 'career', 'careers', 'hr', 'team'
+    }
+    return local_part in generic_prefixes or '+' in local_part
 
 def handle_final_response(event: Event, report_path: Optional[str] = None) -> None:
     """Handle the final response from an agent."""
@@ -199,6 +210,8 @@ class CompanyInfoExtractorAgent(BaseAgent):
         for attempt in range(MAX_RETRIES):
             try:
                 aggregated: Dict[str, Any] = {}
+                used_general_perplexity = False
+                used_specific_tool = False
 
                 async for event in self.sequential_agent.run_async(ctx):
                     if not (event.content and event.content.parts):
@@ -239,6 +252,27 @@ class CompanyInfoExtractorAgent(BaseAgent):
                         'data': cleaned_perplexity_data
                     })
                     ctx.session.state.update(cleaned_perplexity_data)
+                    used_general_perplexity = True
+
+                # Targeted fallback: ensure CEO name and a non-generic CEO email are present
+                ceo_name_val = (ctx.session.state.get("ceo_name") or "").strip()
+                ceo_email_val = (ctx.session.state.get("ceo_email") or "").strip()
+                if (not ceo_name_val) or (not ceo_email_val) or is_generic_email(ceo_email_val):
+                    try:
+                        ceo_specific = await get_specific_info_tool(company, website, ["ceo_name", "ceo_email"])
+                        ceo_specific = {k: "" if v is None else v for k, v in ceo_specific.items()}
+                        # Filter out generic inboxes if returned
+                        if is_generic_email(ceo_specific.get("ceo_email", "")):
+                            ceo_specific["ceo_email"] = ""
+                        if isinstance(aggregated.get("ceo_info"), dict):
+                            aggregated["ceo_info"].update(ceo_specific)
+                        else:
+                            aggregated["ceo_info"] = ceo_specific
+                        ctx.session.state.update(ceo_specific)
+                        self.logger.info({'agent': self.name, 'task': 'perplexity_ceo_specific', 'data': ceo_specific})
+                        used_specific_tool = True
+                    except Exception as e:
+                        self.logger.error(f"Error in targeted CEO fallback for '{company}': {e}", extra={'agent': self.name, 'task': 'perplexity_ceo_specific_error'})
 
                 ctx.session.state["aggregated_data"] = aggregated
 
@@ -246,9 +280,10 @@ class CompanyInfoExtractorAgent(BaseAgent):
                 completion_tokens = count_tokens(aggregated_str, model_name=model_name)
                 
                 tools_used = [agent.name for agent in self.sequential_agent.sub_agents]
-                # Add Perplexity tool to tools_used if it was used
-                if not data and aggregated:
+                if used_general_perplexity:
                     tools_used.append("Perplexity Research Tool")
+                if used_specific_tool:
+                    tools_used.append("Perplexity Specific Fields Tool")
                 
                 log_entry = create_log_entry(
                     agent_name=self.name,
@@ -274,7 +309,12 @@ class CompanyInfoExtractorAgent(BaseAgent):
 
         flat_data = {}
         if data:
-            for agent_output in data.values():
+            # First collect scalar/top-level keys
+            for key, agent_output in data.items():
+                if not isinstance(agent_output, dict):
+                    flat_data[key] = agent_output
+            # Then merge dict outputs to override with structured values (e.g., sanitized CEO fields)
+            for key, agent_output in data.items():
                 if isinstance(agent_output, dict):
                     flat_data.update(agent_output)
 

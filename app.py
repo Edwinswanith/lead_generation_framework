@@ -2,7 +2,7 @@ import eventlet
 eventlet.monkey_patch()
 import eventlet.debug
 eventlet.debug.hub_prevent_multiple_readers(False)
-from flask import Flask, request, jsonify, render_template, redirect, url_for, send_file, session
+from flask import Flask, request, jsonify, render_template, send_file, session
 from flask_socketio import SocketIO, join_room
 from flask_session import Session
 from agent.main import run_agent_async
@@ -16,7 +16,6 @@ import uuid
 from eventlet.patcher import original
 real_threading = original('threading')
 load_dotenv()
-import re
 from utility.emails import send_emails_task
 import asyncio
 
@@ -355,6 +354,25 @@ def send_bulk_emails():
     if mode not in ['draft', 'send', 'follow-up']:
         return jsonify({"error": "Invalid mode specified"}), 400
     
+    # Optional ranking filters (used only when no selections provided)
+    selected_emails = data.get('selected_emails') if data else None
+    if selected_emails and isinstance(selected_emails, list) and len(selected_emails) > 0:
+        rank_min = None
+        rank_max = None
+    else:
+        rank_min = data.get('rank_min') if data else None
+        rank_max = data.get('rank_max') if data else None
+        try:
+            rank_min = float(rank_min) if rank_min is not None else None
+            rank_max = float(rank_max) if rank_max is not None else None
+        except (TypeError, ValueError):
+            return jsonify({"error": "Invalid ranking range"}), 400
+        
+        if (rank_min is not None and (rank_min < 1 or rank_min > 10)) or (rank_max is not None and (rank_max < 1 or rank_max > 10)):
+            return jsonify({"error": "Ranking range must be between 1 and 10"}), 400
+        if rank_min is not None and rank_max is not None and rank_min > rank_max:
+            return jsonify({"error": "Minimum rank cannot be greater than maximum rank"}), 400
+    
     companies_path = os.path.join(BASE_DIR, 'files', session_id, 'companies.csv')
     if not os.path.exists(companies_path):
         return jsonify({"error": "No companies data found"}), 404
@@ -372,7 +390,7 @@ def send_bulk_emails():
             asyncio.set_event_loop(loop)
             
             # Run the email task
-            loop.run_until_complete(send_emails_task(session_id, companies_path, mode, socketio, app))
+            loop.run_until_complete(send_emails_task(session_id, companies_path, mode, socketio, app, rank_min=rank_min, rank_max=rank_max, selected_emails=selected_emails))
 
             # Give the loop a moment to process any pending callbacks from client cleanup
             try:
@@ -445,6 +463,33 @@ def download_email_drafts():
         )
     except Exception as e:
         return jsonify({"error": f"Error creating zip file: {str(e)}"}), 500
+
+@app.route('/get-email-content')
+def get_email_content():
+    session_id = session.get('session_id')
+    if not session_id:
+        return jsonify({"error": "No active session"}), 400
+    email_query = request.args.get('email', '').strip()
+    if not email_query:
+        return jsonify({"error": "Missing email parameter"}), 400
+    try:
+        session_dir = os.path.join(BASE_DIR, 'files', session_id)
+        json_path = os.path.join(session_dir, 'email_contents.json')
+        if not os.path.exists(json_path):
+            return jsonify({"found": False}), 404
+        with open(json_path, 'r') as f:
+            data = json.load(f) or {}
+        match = None
+        email_query_lower = email_query.lower()
+        for k, v in data.items():
+            if str(k).strip().lower() == email_query_lower:
+                match = {"email": k, **v}
+                break
+        if not match:
+            return jsonify({"found": False}), 404
+        return jsonify({"found": True, **match})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 # if __name__ == '__main__':

@@ -107,8 +107,6 @@ files/
 2. **Environment Variables**
    Create a `.env` file with:
    ```
-   SENDER_EMAIL=your_email@gmail.com
-   SENDER_PASSWORD=your_app_password
    SENDER_NAME=Your Name
    SENDER_ROLE=Your Role
    ```

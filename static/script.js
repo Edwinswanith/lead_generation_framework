@@ -24,6 +24,10 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initialize email modal
     const emailModal = new bootstrap.Modal(document.getElementById('emailModal'));
     let emailStatusList = null;
+    let companiesData = []; // Store companies data for sorting
+    let currentSortOrder = null; // Track current sort order
+    let currentEmailSortOrder = null; // Track CEO email presence sort order
+    let selectedEmails = new Set();
 
     // Function to ensure email modal elements are ready
     function initializeEmailModal() {
@@ -219,7 +223,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
     }
-
+    
     function updateLogs(data) {
         if (!agentMonitoringContainer) return;
         agentMonitoringContainer.innerHTML = '';
@@ -293,11 +297,22 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function updateCompanies(data) {
         if (!companiesBody) return;
+        companiesData = data; // Store data for sorting
+        renderCompaniesTable(data);
+    }
+
+    function renderCompaniesTable(data) {
+        if (!companiesBody) return;
         companiesBody.innerHTML = '';
         data.forEach(company => {
+            const emailVal = company['CEO Email'] || company['Email'] || '';
+            const safeEmailAttr = String(emailVal).replace(/\"/g, '&quot;');
             const row = document.createElement('tr');
             row.onclick = () => showCompanyDetails(row);
             row.innerHTML = `
+                <td class="text-center">
+                    <input type="checkbox" class="form-check-input row-selector" data-email="${safeEmailAttr}" onclick="event.stopPropagation()" onchange="toggleSelectEmail(this.getAttribute('data-email'), this.checked)">
+                </td>
                 <td class="fw-bold text-truncate">${company['Company Name']}</td>
                 <td class="text-truncate"><a href="${company['Website']}" class="text-decoration-none" target="_blank">${company['Website']}</a></td>
                 <td class="text-truncate">${company['CEO Name']}</td>
@@ -312,9 +327,51 @@ document.addEventListener('DOMContentLoaded', function() {
                 <td class="text-truncate">${company['Service Focus']}</td>
                 <td class="text-truncate">${company['Ranking']}</td>
                 <td class="text-truncate">${company['Reasoning']}</td>
+                <td class="text-truncate">
+                    <button class="btn btn-sm btn-primary" type="button" onclick="event.stopPropagation(); viewEmailContent('${(company['CEO Email'] || '').replace(/'/g, "&#39;")}')">
+                        View
+                    </button>
+                </td>
             `;
             companiesBody.appendChild(row);
         });
+    }
+
+    // View Email Content
+    window.viewEmailContent = function(email) {
+        if (!email) {
+            Swal.fire({ icon: 'info', title: 'No Email', text: 'No email available for this row.' });
+            return;
+        }
+        fetch(`/get-email-content?email=${encodeURIComponent(email)}`)
+            .then(r => r.json())
+            .then(data => {
+                if (!data || data.error || data.found === false) {
+                    Swal.fire({ icon: 'info', title: 'No Saved Email', text: 'No saved email content found for this address yet.' });
+                    return;
+                }
+                const subject = data.subject || '(No subject)';
+                const body = (data.body || '').replace(/\n/g, '<br>');
+                Swal.fire({
+                    title: 'Saved Email',
+                    html: `
+                        <div class="text-start">
+                            <p><strong>Email:</strong> ${data.email || email}</p>
+                            <p><strong>Subject:</strong> ${subject}</p>
+                            <hr>
+                            <div style="max-height: 50vh; overflow:auto; white-space: pre-wrap;">${body}</div>
+                        </div>
+                    `,
+                    width: '800px',
+                    showCloseButton: true,
+                    showConfirmButton: false,
+                    customClass: { popup: 'rounded-4 shadow-lg' }
+                });
+            })
+            .catch(err => {
+                console.error(err);
+                Swal.fire({ icon: 'error', title: 'Error', text: 'Failed to load email content.' });
+            });
     }
 
     // Remove the old showModal function and replace with enhanced company details view
@@ -437,6 +494,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Reset UI elements
         if (agentMonitoringContainer) agentMonitoringContainer.innerHTML = '';
         if (companiesBody) companiesBody.innerHTML = '';
+        companiesData = []; // Clear stored data
+        currentSortOrder = null; // Reset ranking sort order
+        currentEmailSortOrder = null; // Reset email presence sort order
+        const sortIcon = document.getElementById('ranking-sort-icon');
+        if (sortIcon) sortIcon.className = 'fas fa-sort ms-1'; // Reset ranking sort icon
+        const emailSortIcon = document.getElementById('email-sort-icon');
+        if (emailSortIcon) emailSortIcon.className = 'fas fa-sort ms-1'; // Reset email sort icon
         const totalCostEl = document.getElementById('total-cost');
         if (totalCostEl) totalCostEl.textContent = '$0.00';
         updateProgress({ processed: 0, total: 0 });
@@ -564,6 +628,13 @@ document.addEventListener('DOMContentLoaded', function() {
                         showSuccess('Success', 'All data has been cleared');
             if (agentMonitoringContainer) agentMonitoringContainer.innerHTML = '';
             if (companiesBody) companiesBody.innerHTML = '';
+            companiesData = []; // Clear stored data
+            currentSortOrder = null; // Reset ranking sort order
+            currentEmailSortOrder = null; // Reset email presence sort order
+            const sortIcon = document.getElementById('ranking-sort-icon');
+            if (sortIcon) sortIcon.className = 'fas fa-sort ms-1'; // Reset ranking sort icon
+            const emailSortIcon = document.getElementById('email-sort-icon');
+            if (emailSortIcon) emailSortIcon.className = 'fas fa-sort ms-1'; // Reset email sort icon
             const totalCostEl = document.getElementById('total-cost');
             if (totalCostEl) totalCostEl.textContent = '$0.00';
             updateProgress({ processed: 0, total: 0 });
@@ -590,29 +661,91 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Make sendBulkEmails globally accessible
     window.sendBulkEmails = function(mode) {
+        // Build selection from DOM to ensure accuracy
+        const nodes = document.querySelectorAll('#enriched-companies-body .row-selector:checked');
+        const list = Array.from(nodes)
+            .map(n => String(n.getAttribute('data-email') || '').trim().toLowerCase())
+            .filter(v => !!v);
+        const selectedList = Array.from(new Set(list));
+        const anySelected = selectedList.length > 0;
+        if (anySelected) {
+            emailModal.show();
+            initializeEmailModal();
+            if (emailStatusList) emailStatusList.innerHTML = '';
+            const progressBar = document.getElementById('email-progress-bar');
+            const progressText = document.getElementById('email-progress-text');
+            if (progressBar && progressText) {
+                progressBar.style.width = '0%';
+                progressBar.setAttribute('aria-valuenow', 0);
+                progressText.textContent = '0/0';
+            }
+            fetch('/send-bulk-emails', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mode: mode, selected_emails: selectedList })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    Swal.fire({ title: 'Error', text: data.error, icon: 'error' });
+                    emailModal.hide();
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                Swal.fire({ title: 'Error', text: 'Failed to start email process', icon: 'error' });
+                emailModal.hide();
+            });
+            return;
+        }
+
+        // Fall back to rank range modal when no selection
         Swal.fire({
             title: 'Send Emails',
-            text: 'Do you want to send emails now?',
+            html: `
+                <div class="text-start">
+                    <p class="mb-2"><strong>Set ranking range to send:</strong></p>
+                    <div class="d-flex align-items-center" style="gap: 10px;">
+                        <div>
+                            <label for="rank-min" class="form-label">Min Rank</label>
+                            <input id="rank-min" type="number" class="form-control" min="1" max="10" step="1" value="1">
+                        </div>
+                        <div>
+                            <label for="rank-max" class="form-label">Max Rank</label>
+                            <input id="rank-max" type="number" class="form-control" min="1" max="10" step="1" value="10">
+                        </div>
+                    </div>
+                    <small class="text-muted">Only companies with ranking within this range will be processed.</small>
+                </div>
+            `,
             icon: 'question',
             showCancelButton: true,
-            confirmButtonText: 'Yes, send emails',
-            cancelButtonText: 'No, cancel',
+            confirmButtonText: 'Start',
+            cancelButtonText: 'Cancel',
             confirmButtonColor: '#3085d6',
-            cancelButtonColor: '#d33'
+            cancelButtonColor: '#d33',
+            preConfirm: () => {
+                const minVal = parseFloat(document.getElementById('rank-min').value);
+                const maxVal = parseFloat(document.getElementById('rank-max').value);
+                if (isNaN(minVal) || isNaN(maxVal)) {
+                    Swal.showValidationMessage('Please enter valid numbers for rank range');
+                    return false;
+                }
+                if (minVal < 1 || minVal > 10 || maxVal < 1 || maxVal > 10) {
+                    Swal.showValidationMessage('Ranking values must be between 1 and 10');
+                    return false;
+                }
+                if (minVal > maxVal) {
+                    Swal.showValidationMessage('Minimum rank cannot be greater than maximum rank');
+                    return false;
+                }
+                return { rank_min: minVal, rank_max: maxVal };
+            }
         }).then((result) => {
             if (result.isConfirmed) {
-                // User confirmed, show the progress modal
                 emailModal.show();
-                
-                // Initialize modal elements
                 initializeEmailModal();
-                
-                // Clear previous status messages
-                if (emailStatusList) {
-                    emailStatusList.innerHTML = '';
-                }
-                
-                // Reset progress bar
+                if (emailStatusList) emailStatusList.innerHTML = '';
                 const progressBar = document.getElementById('email-progress-bar');
                 const progressText = document.getElementById('email-progress-text');
                 if (progressBar && progressText) {
@@ -620,31 +753,29 @@ document.addEventListener('DOMContentLoaded', function() {
                     progressBar.setAttribute('aria-valuenow', 0);
                     progressText.textContent = '0/0';
                 }
-
-                // Start the email process
                 fetch('/send-bulk-emails', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ mode: mode })
+                    body: JSON.stringify({ mode: mode, rank_min: result.value.rank_min, rank_max: result.value.rank_max })
                 })
                 .then(response => response.json())
                 .then(data => {
                     if (data.error) {
                         Swal.fire({
                             title: 'Error',
-                            text: data.error,
+                            text: 'Failed to start email process',
                             icon: 'error'
                         });
                         emailModal.hide();
                     }
-        })
-        .catch(error => {
-            console.error('Error:', error);
+                })
+                .catch(error => {
+                    console.error('Error:', error);
                     Swal.fire({
                         title: 'Error',
-                        text: 'Error starting email process',
+                        text: 'Failed to start email process',
                         icon: 'error'
                     });
                     emailModal.hide();
@@ -652,6 +783,19 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     };
+
+    // Clear selection when starting a new agent or clearing data
+    const originalStartAgent = window.startAgent;
+    window.startAgent = function() {
+        selectedEmails.clear();
+        originalStartAgent();
+    }
+
+    const originalClearData = window.clearData;
+    window.clearData = function() {
+        selectedEmails.clear();
+        originalClearData();
+    }
 
     // Socket event handlers
     socket.on('email_progress', function(data) {
@@ -673,6 +817,127 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
     });
+
+    // Toggle sorting function for ranking column
+    window.toggleRankingSort = function() {
+        if (!companiesData || companiesData.length === 0) {
+            showWarning('No Data', 'No companies data available to sort.');
+            return;
+        }
+
+        // Determine next sort order (toggle between asc, desc, and original)
+        let nextOrder;
+        if (currentSortOrder === null) {
+            nextOrder = 'desc'; // Start with High to Low
+        } else if (currentSortOrder === 'desc') {
+            nextOrder = 'asc'; // Switch to Low to High
+        } else {
+            nextOrder = null; // Return to original order
+        }
+
+        const sortIcon = document.getElementById('ranking-sort-icon');
+        
+        if (nextOrder === null) {
+            // Return to original order
+            renderCompaniesTable(companiesData);
+            currentSortOrder = null;
+            if (sortIcon) sortIcon.className = 'fas fa-sort ms-1';
+            showSuccess('Sorted', 'Returned to original order');
+            return;
+        }
+
+        // Create a copy of the data for sorting
+        const sortedData = [...companiesData];
+        
+        // Sort function
+        sortedData.sort((a, b) => {
+            const rankingA = parseFloat(a['Ranking']) || 0;
+            const rankingB = parseFloat(b['Ranking']) || 0;
+            
+            if (nextOrder === 'asc') {
+                return rankingA - rankingB; // Low to High
+            } else {
+                return rankingB - rankingA; // High to Low
+            }
+        });
+
+        // Update the current sort order
+        currentSortOrder = nextOrder;
+        
+        // Update sort icon
+        if (sortIcon) {
+            if (nextOrder === 'asc') {
+                sortIcon.className = 'fas fa-sort-up ms-1';
+            } else {
+                sortIcon.className = 'fas fa-sort-down ms-1';
+            }
+        }
+        
+        // Re-render the table with sorted data
+        renderCompaniesTable(sortedData);
+        
+        // Show success message
+        const message = nextOrder === 'asc' ? 'Sorted by ranking: Low to High' : 'Sorted by ranking: High to Low';
+        showSuccess('Sorted', message);
+    };
+
+    // Toggle sorting function for CEO Email presence
+    window.toggleEmailPresenceSort = function() {
+        if (!companiesData || companiesData.length === 0) {
+            showWarning('No Data', 'No companies data available to sort.');
+            return;
+        }
+
+        // Determine next sort order (toggle between present-first, missing-first, and original)
+        let nextOrder;
+        if (currentEmailSortOrder === null) {
+            nextOrder = 'present'; // Start with present emails first
+        } else if (currentEmailSortOrder === 'present') {
+            nextOrder = 'missing'; // Switch to missing emails first
+        } else {
+            nextOrder = null; // Return to original order
+        }
+
+        const emailSortIcon = document.getElementById('email-sort-icon');
+
+        if (nextOrder === null) {
+            renderCompaniesTable(companiesData);
+            currentEmailSortOrder = null;
+            if (emailSortIcon) emailSortIcon.className = 'fas fa-sort ms-1';
+            showSuccess('Sorted', 'Returned to original order');
+            return;
+        }
+
+        const sortedData = [...companiesData];
+        const presenceValue = (email) => {
+            const val = (email || '').toString().trim();
+            return val ? 1 : 0; // 1 = present, 0 = missing
+        };
+
+        sortedData.sort((a, b) => {
+            const aVal = presenceValue(a['CEO Email']);
+            const bVal = presenceValue(b['CEO Email']);
+            if (nextOrder === 'present') {
+                return bVal - aVal; // Present first
+            } else {
+                return aVal - bVal; // Missing first
+            }
+        });
+
+        currentEmailSortOrder = nextOrder;
+
+        if (emailSortIcon) {
+            if (nextOrder === 'present') {
+                emailSortIcon.className = 'fas fa-envelope ms-1';
+            } else {
+                emailSortIcon.className = 'fas fa-envelope-open ms-1';
+            }
+        }
+
+        renderCompaniesTable(sortedData);
+        const message = nextOrder === 'present' ? 'Sorted by CEO Email: Present first' : 'Sorted by CEO Email: Missing first';
+        showSuccess('Sorted', message);
+    };
 
     // Update the click handler
     document.addEventListener('click', function(e) {
